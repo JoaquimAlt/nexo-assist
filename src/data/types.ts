@@ -42,8 +42,12 @@ export interface Ticket {
 
 export type Affected = 'eu' | 'equipe' | 'empresa' | 'nao_sei';
 
+/** Incidente (INC): algo parou ou não funciona. Requisição (REQ): pedido de acesso, equipamento ou software. */
+export type TicketKind = 'incidente' | 'requisicao';
+
 export interface TicketDraft {
   id: string;
+  kind: TicketKind;
   title: string;
   description: string;
   category: string;
@@ -94,6 +98,8 @@ export interface Message {
   tools?: string[];
   /** Detalhe da decisão por trás da resposta do assistente. */
   decision?: Decision;
+  /** Resposta de erro: a entrada que pode ser reenviada. */
+  retry?: AgentInput;
   analyst?: { name: string; team: string };
   /** Eventos têm um texto próprio para o colaborador. */
   event?: { icon: EventIcon; contactText?: string };
@@ -119,6 +125,23 @@ export interface AgentContext {
   awaiting?: 'affected' | 'note' | 'kb';
   problem?: ProblemInfo;
   focusTicketId?: string;
+  /** Respostas seguidas em que o agent não entendeu o pedido. */
+  misses?: number;
+}
+
+export type AgentInput =
+  | { type: 'text'; text: string }
+  | { type: 'choice'; messageId: string; blockIndex: number; value: string; label: string }
+  | { type: 'pick-ticket'; messageId: string; ticketId: string }
+  | { type: 'draft'; messageId: string; action: 'confirm' | 'cancel' };
+
+/** O que o analista recebe na transferência, para não perguntar tudo de novo. */
+export interface HandoffSummary {
+  reason: string;
+  ticket?: string;
+  report?: string;
+  /** O que o agent já fez na conversa. */
+  tried: string[];
 }
 
 export interface Conversation {
@@ -137,7 +160,14 @@ export interface Conversation {
   lastReadAt?: string;
   closedAt?: string;
   agent: AgentContext;
-  pending?: { tools: string[]; startedAt: string; durationMs: number };
+  handoff?: HandoffSummary;
+  pending?: {
+    tools: string[];
+    startedAt: string;
+    durationMs: number;
+    /** Aviso enquanto o sistema de chamados é consultado de novo. */
+    notice?: string;
+  };
   contactTypingUntil?: number;
   analystTypingUntil?: number;
 }
@@ -147,6 +177,6 @@ export interface DB {
   users: User[];
   tickets: Ticket[];
   conversations: Conversation[];
-  seq: { inc: number; draft: number };
+  seq: { inc: number; req: number; draft: number };
   analystAvailable: boolean;
 }

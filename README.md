@@ -71,6 +71,8 @@ src/
     engine.ts        motor do assistente (função pura: entrada + contexto → resposta + efeitos)
     engine.test.ts   testes do motor (Vitest)
     runtime.ts       aplica a resposta ao "backend": atraso, ferramentas, efeitos
+  services/
+    tickets.ts       serviço de chamados simulado (sistema legado: latência, falhas, dono do chamado)
   store/
     store.ts         "backend" simulado em localStorage, sincronizado entre abas
     auth.ts          sessão por aba (sessionStorage) + "manter conectado"
@@ -90,12 +92,22 @@ src/
 - **Sessão por aba.** A sessão fica no `sessionStorage`, para que Ana e Rafael possam ficar logados lado a lado. "Manter conectado" grava também no `localStorage`.
 - **Dados com datas relativas.** O cenário dos protótipos (chamado parado há 5 dias úteis, conversas de hoje e de ontem) se mantém em qualquer dia em que o projeto for aberto.
 
-### Regras de negócio simuladas
+### Regras do service desk (Anexo A)
 
-| Regra | Valor |
+| Regra | Como o agent aplica |
 | --- | --- |
-| Prazo sem atualização (dias úteis) | crítica 1 · alta 2 · média 3 · baixa 5 |
-| Primeira resposta de chamado novo | crítica 1 h · alta 2 h · média 4 h · baixa 8 h |
-| Retorno após transferência | 2 h |
-| Prioridade | "toda a empresa" → crítica; "minha equipe" ou urgência (reunião, cliente, hoje…) → alta; senão média |
+| Tipo | Pedido de acesso, equipamento ou software → requisição (`REQ`); algo que parou ou não funciona → incidente (`INC`) |
+| Categorias | Acesso, Rede e VPN, Hardware, Software, E-mail e Outros |
+| Prioridade | Incidente que para a equipe ou a empresa → crítica; compromisso em risco (reunião, cliente, hoje…) → alta; pedido sem urgência → baixa; senão média |
+| Prazo (primeira resposta e cada atualização) | crítica 1 h · alta 4 h úteis · média 3 dias úteis · baixa 5 dias úteis (expediente: seg–sex, 8h–18h) |
+| Abertura | Rascunho com título, descrição, tipo, categoria, prioridade e afetados; só cria depois da confirmação |
+| Sem duplicidade | Chamado aberto sobre o mesmo problema é complementado; resolvido há até 7 dias pode ser reaberto |
+| Transferência | Quando o colaborador pede, em chamado crítico (automática), em chamado vencido (oferecida) e quando o agent não entende duas vezes seguidas (status "Agent pediu ajuda"). Leva um resumo do caso para o analista |
+| Privacidade | O serviço de chamados só devolve e altera chamados de quem os abriu |
+| Escopo | RH, financeiro e facilities são redirecionados, sem abrir chamado |
+| Retorno após transferência | 2 h úteis |
 | Limite por conversa | 30 mensagens |
+
+### Sistema de chamados instável
+
+O serviço de chamados (`src/services/tickets.ts`) simula o sistema legado: cada chamada leva de 150 a 450 ms e 8% delas falham. O runtime tenta até 3 vezes, com espera crescente, e mostra "Tentando de novo (2/3)…" enquanto isso. Se as 3 falharem, o agent avisa que nada foi alterado e oferece **Tentar de novo**. Abra o app com `?instavel` na URL (por exemplo `http://localhost:5173/atendimento?instavel`) para 50% de falhas e ver esse fluxo.

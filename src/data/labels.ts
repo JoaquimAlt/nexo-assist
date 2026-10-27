@@ -1,4 +1,4 @@
-import type { Affected, Priority, TicketStatus } from './types';
+import type { Affected, Priority, TicketKind, TicketStatus } from './types';
 
 export type Tone = 'amber' | 'blue' | 'green' | 'gray' | 'red';
 
@@ -24,13 +24,12 @@ export const AFFECTED: Record<Affected, string> = {
   nao_sei: 'Não informado',
 };
 
-export const CATEGORIES = [
-  'Rede e VPN',
-  'Hardware › Notebook',
-  'Periféricos',
-  'Impressão',
-  'E-mail e colaboração',
-  'Acessos',
-  'Sistemas',
-  'Outros',
-];
+/** Categorias do service desk (Anexo A). */
+export const CATEGORIES = ['Acesso', 'Rede e VPN', 'Hardware', 'Software', 'E-mail', 'Outros'];
+
+export const TICKET_KIND: Record<TicketKind, { label: string; prefix: 'INC' | 'REQ' }> = {
+  incidente: { label: 'Incidente', prefix: 'INC' },
+  requisicao: { label: 'Requisição', prefix: 'REQ' },
+};
+
+export const kindOf = (ticketId: string): TicketKind => (ticketId.startsWith('REQ-') ? 'requisicao' : 'incidente');

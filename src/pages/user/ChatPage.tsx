@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import { AlertCircle, ArrowLeftRight, ArrowUp, Bot, Check, CircleCheck, Clock, Headphones, Loader2 } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, ArrowUp, Bot, Check, CircleCheck, Clock, Headphones, Loader2, RotateCcw } from 'lucide-react';
 import type { Block, Conversation, DB, EventIcon, Message, TicketDraft, User } from '../../data/types';
-import { AFFECTED, CATEGORIES, PRIORITY, TICKET_STATUS } from '../../data/labels';
+import { AFFECTED, CATEGORIES, PRIORITY, TICKET_KIND, TICKET_STATUS } from '../../data/labels';
 import { useCurrentUser } from '../../store/auth';
 import { useDB } from '../../store/store';
 import { activeConversation, countMessages, ticketById, userById } from '../../store/selectors';
 import { MESSAGE_LIMIT, contactTyping, recoverStale, restartConversation, sendToConversation, startConversation, updateDraft } from '../../agent/runtime';
-import { responseDeadline } from '../../lib/sla';
-import { dayMonth, hhmm } from '../../lib/time';
+import { slaDeadline } from '../../lib/sla';
+import { dayMonth, dueLabel, hhmm } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
 import { TicketCard } from '../../components/TicketCard';
 import { DecisionDetails } from '../../components/DecisionDetails';
@@ -210,6 +210,13 @@ function MessageView({ m, conv, db, now, active }: { m: Message; conv: Conversat
       </div>
       {m.decision && <DecisionDetails decision={m.decision} />}
       {m.blocks?.map((b, i) => <BlockView key={i} block={b} index={i} message={m} conv={conv} db={db} now={now} active={active} />)}
+      {m.retry && active && (
+        <div className="chips">
+          <button className="chip" onClick={() => m.retry && sendToConversation(conv.id, m.retry)}>
+            <RotateCcw size={14} /> Tentar de novo
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -322,7 +329,7 @@ function DraftCard({ block, messageId, convId, active, now }: {
   };
 
   const priority = PRIORITY[d.priority];
-  const deadline = responseDeadline(d.priority, new Date(now));
+  const deadline = slaDeadline(d.priority, now);
 
   const status =
     block.state === 'confirmed' ? (
@@ -357,6 +364,16 @@ function DraftCard({ block, messageId, convId, active, now }: {
             </label>
             <div className="draft-form-row">
               <label className="field">
+                <span className="field-label">Tipo</span>
+                <select className="input" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as TicketDraft['kind'] })}>
+                  {Object.entries(TICKET_KIND).map(([k, v]) => (
+                    <option key={k} value={k}>
+                      {v.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
                 <span className="field-label">Categoria</span>
                 <select className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
                   {CATEGORIES.map((c) => (
@@ -390,7 +407,11 @@ function DraftCard({ block, messageId, convId, active, now }: {
           <>
             <h3 className="tcard-title">{d.title}</h3>
             <p className="tcard-desc">{d.description}</p>
-            <dl className="tcard-grid cols-3">
+            <dl className="tcard-grid cols-4">
+              <div>
+                <dt>Tipo</dt>
+                <dd>{TICKET_KIND[d.kind].label}</dd>
+              </div>
               <div>
                 <dt>Categoria</dt>
                 <dd>{d.category}</dd>
@@ -399,7 +420,7 @@ function DraftCard({ block, messageId, convId, active, now }: {
                 <dt>Prioridade</dt>
                 <dd>
                   <Dot tone={priority.tone} /> {priority.label}
-                  {pending && <span className="muted small"> · resposta até {hhmm(deadline)}</span>}
+                  {pending && <span className="muted small"> · resposta até {dueLabel(deadline, now)}</span>}
                 </dd>
               </div>
               <div>
@@ -464,6 +485,12 @@ function PendingTurn({ pending }: { pending: NonNullable<Conversation['pending']
           </span>
         )}
       </div>
+      {pending.notice && (
+        <div className="tool tool-warn">
+          <AlertCircle size={13} />
+          {pending.notice}
+        </div>
+      )}
       <div className="a-bubble a-typing">
         <span className="typing-dots"><i /><i /><i /></span>
       </div>

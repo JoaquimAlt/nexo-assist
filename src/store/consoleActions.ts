@@ -39,6 +39,7 @@ export function returnToAgent(convId: string) {
     c.assigneeId = undefined;
     c.assignedAt = undefined;
     c.confidence = undefined;
+    c.handoff = undefined;
     c.waitingDeadline = undefined;
     c.agent = {};
     c.messages.push(newMessage({ author: 'event', text: 'Devolvida ao Nexo Assist', event: { icon: 'bot', contactText: 'O Nexo Assist voltou a atender' } }, now));

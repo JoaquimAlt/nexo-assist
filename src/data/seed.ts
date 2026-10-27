@@ -1,8 +1,9 @@
 import type { Conversation, DB, EventIcon, Message, Ticket, User } from './types';
-import { ddmm, hhmm, subBusinessDays } from '../lib/time';
+import { ddmm, dueLabel, subBusinessDays } from '../lib/time';
+import { slaDeadline } from '../lib/sla';
 
 /** Incrementar quando o formato do banco mudar: dados antigos são descartados. */
-export const SEED_VERSION = 1;
+export const SEED_VERSION = 2;
 
 /**
  * Dados de demonstração. Todas as datas são relativas a `now`, então o
@@ -40,7 +41,7 @@ export function createSeed(now = new Date()): DB {
       title: 'Notebook lento após atualização do Windows',
       shortTitle: 'Notebook lento após atualização',
       description: `Lentidão geral desde a atualização de ${ddmm(new Date(stale.getTime() - 86_400_000))}. Reiniciar e rodar o diagnóstico da central não resolveu.`,
-      category: 'Hardware › Notebook',
+      category: 'Hardware',
       priority: 'media',
       status: 'aguardando_analista',
       requesterId: 'u-ana',
@@ -53,7 +54,7 @@ export function createSeed(now = new Date()): DB {
       title: 'Acesso à pasta Financeiro no SharePoint',
       shortTitle: 'Acesso à pasta Financeiro',
       description: 'Preciso de permissão de edição na pasta Financeiro/Fechamento para o fechamento do mês.',
-      category: 'Acessos',
+      category: 'Acesso',
       priority: 'media',
       status: 'em_andamento',
       requesterId: 'u-ana',
@@ -66,7 +67,7 @@ export function createSeed(now = new Date()): DB {
       id: 'REQ-10442',
       title: 'Segundo monitor para home office',
       description: 'Monitor adicional de 24" para trabalho remoto, aprovado pela gestora.',
-      category: 'Periféricos',
+      category: 'Hardware',
       priority: 'baixa',
       status: 'aprovado',
       requesterId: 'u-ana',
@@ -75,10 +76,24 @@ export function createSeed(now = new Date()): DB {
       notes: [],
     },
     {
+      id: 'INC-20150',
+      title: 'Senha do SAP bloqueada',
+      description: 'Conta do SAP bloqueada depois de várias tentativas de login.',
+      category: 'Acesso',
+      priority: 'media',
+      status: 'resolvido',
+      requesterId: 'u-ana',
+      openedAt: at(daysAgo(5), 9, 10),
+      updatedAt: at(daysAgo(4), 11, 30),
+      resolvedAt: at(daysAgo(4), 11, 30),
+      assignee: 'Rafael Lima',
+      notes: [],
+    },
+    {
       id: 'INC-19877',
       title: 'Outlook não sincroniza no celular',
       description: 'E-mails corporativos pararam de chegar no aplicativo do Outlook no celular.',
-      category: 'E-mail e colaboração',
+      category: 'E-mail',
       priority: 'media',
       status: 'resolvido',
       requesterId: 'u-ana',
@@ -92,7 +107,7 @@ export function createSeed(now = new Date()): DB {
       id: 'INC-19410',
       title: 'Troca de senha da rede',
       description: 'Senha da rede expirou durante as férias.',
-      category: 'Acessos',
+      category: 'Acesso',
       priority: 'alta',
       status: 'resolvido',
       requesterId: 'u-ana',
@@ -105,7 +120,7 @@ export function createSeed(now = new Date()): DB {
       id: 'INC-20502',
       title: 'Painel de vendas do Power BI não atualiza',
       description: 'O painel de vendas não atualiza desde segunda-feira.',
-      category: 'Sistemas',
+      category: 'Software',
       priority: 'alta',
       status: 'aguardando_analista',
       requesterId: 'u-bruno',
@@ -117,7 +132,7 @@ export function createSeed(now = new Date()): DB {
       id: 'INC-20519',
       title: 'Impressora do 3º andar não imprime',
       description: 'A impressora do 3º andar não imprime nada. Reinstalar pela central não resolveu.',
-      category: 'Impressão',
+      category: 'Hardware',
       priority: 'media',
       status: 'aguardando_analista',
       requesterId: 'u-elisa',
@@ -134,7 +149,7 @@ export function createSeed(now = new Date()): DB {
   const ev = (min: number, icon: EventIcon, text: string, contactText?: string) => mk('event', ago(min), { text, event: { icon, contactText } });
 
   const conv = (c: Omit<Conversation, 'agent'>): Conversation => ({ agent: {}, ...c });
-  const elisaDeadline = hhmm(new Date(elisaOpened.getTime() + 4 * 3_600_000));
+  const elisaDeadline = dueLabel(slaDeadline('media', elisaOpened), now);
 
   const conversations: Conversation[] = [
     conv({
@@ -146,6 +161,11 @@ export function createSeed(now = new Date()): DB {
       waitingSince: ago(12.5),
       waitingDeadline: iso(new Date(now.getTime() + 25 * 60_000)),
       lastReadAt: ago(10),
+      handoff: {
+        reason: 'A colaboradora pediu para falar com um analista.',
+        report: 'Acesso ao SAP expirou e ela não consegue lançar as notas.',
+        tried: ['consultou seus acessos'],
+      },
       messages: [
         say(15, 'Oi, meu acesso ao SAP expirou e não consigo lançar as notas.'),
         bot(14.5, 'Acessos ao SAP são liberados pelo Suporte N2 depois da aprovação da sua gestora. Quer que eu chame um analista?', ['consultou seus acessos']),
@@ -166,6 +186,12 @@ export function createSeed(now = new Date()): DB {
       waitingSince: ago(16),
       waitingDeadline: iso(new Date(now.getTime() + 104 * 60_000)),
       lastReadAt: ago(15),
+      handoff: {
+        reason: 'O agent não teve segurança para decidir (confiança 41%): dois artigos indicam soluções diferentes.',
+        ticket: 'INC-20502 · Painel de vendas do Power BI não atualiza · Aguardando analista',
+        report: 'O painel de vendas do Power BI não atualiza desde segunda.',
+        tried: ['consultou seus chamados', 'buscou na central de ajuda'],
+      },
       messages: [
         say(18, 'O painel de vendas do Power BI não atualiza desde segunda.'),
         bot(17, 'Encontrei dois artigos que podem explicar isso, mas eles indicam soluções diferentes para o seu caso.', ['consultou seus chamados', 'buscou na central de ajuda']),
@@ -229,7 +255,7 @@ export function createSeed(now = new Date()): DB {
     users,
     tickets,
     conversations,
-    seq: { inc: 20520, draft: 381 },
+    seq: { inc: 20520, req: 10443, draft: 381 },
     analystAvailable: true,
   };
 }

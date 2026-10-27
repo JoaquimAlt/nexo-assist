@@ -14,7 +14,7 @@ function env(conversation?: Partial<Conversation>): AgentEnv {
     tickets: db.tickets.filter((t) => t.requesterId === user.id),
     conversation: { id: 'c', contactId: user.id, status: 'agent', createdAt: NOW.toISOString(), messages: [], agent: {}, ...conversation },
     now: NOW,
-    nextTicketId: 'INC-20520',
+    nextIds: { incidente: 'INC-20520', requisicao: 'REQ-10443' },
     nextDraftId: 'D-381',
   };
 }
@@ -40,7 +40,7 @@ describe('consulta de chamados', () => {
 
   it('transfere para o Suporte N2 com o chamado em foco', () => {
     const r = runAgent({ type: 'text', text: 'Quero falar com um analista.' }, env({ agent: { focusTicketId: 'INC-20311' } }));
-    expect(r.effects).toEqual([{ type: 'handoff', ticketId: 'INC-20311' }]);
+    expect(r.effects).toMatchObject([{ type: 'handoff', ticketId: 'INC-20311', summary: { ticket: expect.stringContaining('prazo vencido') } }]);
     expect(texts(r.blocks)).toContain('Encaminhei para o Suporte N2');
   });
 
@@ -72,19 +72,20 @@ describe('abertura de chamado', () => {
       affected: 'eu',
     });
     expect(draft?.type === 'draft' && draft.draft.description).toContain('desde 20/10');
-    expect(texts(r.blocks)).toContain('por causa da reunião — a resposta chega antes das 14h');
+    expect(texts(r.blocks)).toContain('por causa da reunião — resposta até 15:43');
+    expect(texts(r.blocks)).toContain('Esse prazo passa do seu horário das 14h');
     expect(r.effects).toContainEqual({ type: 'mark-choice', value: 'aff:eu' });
   });
 
   it('cria o chamado ao confirmar o rascunho', () => {
     const first = runAgent({ type: 'text', text: 'A impressora não imprime.' }, env());
     const kbNo = runAgent({ type: 'choice', messageId: 'x', blockIndex: 0, value: 'kb:no', label: 'Não resolveu' }, env({ agent: first.context }));
-    const draft = runAgent({ type: 'choice', messageId: 'x', blockIndex: 0, value: 'aff:equipe', label: 'Minha equipe' }, env({ agent: kbNo.context }));
+    const draft = runAgent({ type: 'choice', messageId: 'x', blockIndex: 0, value: 'aff:eu', label: 'Só eu' }, env({ agent: kbNo.context }));
     const message: Message = { id: 'm-draft', at: NOW.toISOString(), author: 'assistant', blocks: draft.blocks };
 
     const r = runAgent({ type: 'draft', messageId: 'm-draft', action: 'confirm' }, env({ messages: [message], agent: draft.context }));
     expect(r.effects).toEqual([{ type: 'create-ticket', messageId: 'm-draft', ticketId: 'INC-20520' }]);
-    expect(texts(r.blocks)).toContain('abri o INC-20520 com prioridade alta');
+    expect(texts(r.blocks)).toContain('abri o INC-20520 com prioridade média');
   });
 
   it('sugere acrescentar a um chamado já aberto sobre o mesmo assunto', () => {
@@ -132,7 +133,89 @@ describe('detalhe da decisão', () => {
   it('aponta o prazo vencido em dias úteis', () => {
     const r = runAgent({ type: 'pick-ticket', messageId: 'm', ticketId: 'INC-20311' }, env());
     expect(r.decision.action).toBe('Apontou o prazo vencido e ofereceu um analista');
-    expect(r.decision.reasons.join(' ')).toMatch(/dias úteis; o prazo para prioridade média é 3 dias úteis\. Está vencido/);
+    expect(r.decision.reasons.join(' ')).toContain('O prazo para prioridade média é 3 dias úteis a partir da última atualização; venceu em');
+  });
+});
+
+/** Leva um relato até o rascunho, escolhendo quem é afetado. */
+function draftFor(textIn: string, affected: string) {
+  const first = runAgent({ type: 'text', text: textIn }, env());
+  const ctx = first.context.awaiting === 'kb'
+    ? runAgent({ type: 'choice', messageId: 'x', blockIndex: 0, value: 'kb:no', label: 'Não resolveu' }, env({ agent: first.context })).context
+    : first.context;
+  const r = runAgent({ type: 'choice', messageId: 'x', blockIndex: 0, value: `aff:${affected}`, label: affected }, env({ agent: ctx }));
+  const block = r.blocks.find((b) => b.type === 'draft');
+  if (block?.type !== 'draft') throw new Error('sem rascunho');
+  return { r, draft: block.draft };
+}
+
+describe('regras do service desk (Anexo A)', () => {
+  it('classifica pedido como requisição (REQ) de prioridade baixa', () => {
+    const { draft } = draftFor('Preciso de uma licença do Adobe Acrobat para editar contratos', 'eu');
+    expect(draft).toMatchObject({ kind: 'requisicao', category: 'Software', priority: 'baixa' });
+  });
+
+  it('classifica algo que parou como incidente (INC)', () => {
+    const { draft } = draftFor('O Power BI não atualiza o painel de vendas', 'eu');
+    expect(draft).toMatchObject({ kind: 'incidente', category: 'Software', priority: 'media' });
+  });
+
+  it('dá prioridade crítica quando algo para a equipe e transfere ao confirmar', () => {
+    const { r: draft } = draftFor('A impressora do andar não imprime nada', 'equipe');
+    const message: Message = { id: 'm-draft', at: NOW.toISOString(), author: 'assistant', blocks: draft.blocks };
+    const r = runAgent({ type: 'draft', messageId: 'm-draft', action: 'confirm' }, env({ messages: [message], agent: draft.context }));
+    expect(r.effects).toMatchObject([
+      { type: 'create-ticket', ticketId: 'INC-20520' },
+      { type: 'handoff', ticketId: 'INC-20520', summary: { reason: expect.stringContaining('crítico') } },
+    ]);
+    expect(texts(r.blocks)).toContain('Como é crítico, já chamei um analista');
+  });
+
+  it('usa os prazos do Anexo A', () => {
+    const { r } = draftFor('A impressora do andar não imprime nada', 'eu');
+    // Média: 3 dias úteis a partir de quarta, 21/10 → segunda, 26/10.
+    expect(texts(r.blocks)).toContain('resposta até 26/10 às 11:43');
+  });
+
+  it('oferece reabrir um chamado resolvido há menos de 7 dias em vez de abrir outro', () => {
+    const r = runAgent({ type: 'text', text: 'Minha senha do SAP bloqueou de novo' }, env());
+    expect(r.blocks[0]).toEqual({ type: 'ticket', ticketId: 'INC-20150' });
+    expect(texts(r.blocks)).toContain('posso reabrir ele');
+
+    const reopen = runAgent({ type: 'choice', messageId: 'x', blockIndex: 1, value: 'tk:reabrir', label: 'Reabrir o chamado' }, env({ agent: r.context }));
+    expect(reopen.effects).toEqual([{ type: 'reopen', ticketId: 'INC-20150', text: 'Minha senha do SAP bloqueou de novo' }]);
+  });
+
+  it('não oferece reabrir chamado resolvido há mais de 7 dias', () => {
+    const r = runAgent({ type: 'pick-ticket', messageId: 'm', ticketId: 'INC-19877' }, env());
+    const choices = r.blocks.flatMap((b) => (b.type === 'text' ? b.choices ?? [] : [])).map((c) => c.value);
+    expect(choices).not.toContain('tk:reabrir');
+  });
+
+  it('redireciona assuntos fora de TI', () => {
+    const r = runAgent({ type: 'text', text: 'Quero saber quando caem minhas férias' }, env());
+    expect(r.decision.intent).toBe('Fora do escopo de TI');
+    expect(texts(r.blocks)).toContain('Esse assunto é do RH');
+    expect(r.effects).toEqual([]);
+  });
+
+  it('não confunde pedido de TI com assunto de outra área', () => {
+    const r = runAgent({ type: 'text', text: 'Preciso de acesso à pasta Financeiro do SharePoint' }, env());
+    expect(r.decision.intent).not.toBe('Fora do escopo de TI');
+  });
+
+  it('chama um analista quando não entende duas vezes seguidas', () => {
+    const first = runAgent({ type: 'text', text: 'hmm' }, env());
+    expect(first.effects).toEqual([]);
+    const second = runAgent({ type: 'text', text: 'ahn' }, env({ agent: first.context }));
+    expect(second.effects).toMatchObject([{ type: 'handoff', lowConfidence: CONFIDENCE.none }]);
+    expect(texts(second.blocks)).toContain('Não consegui entender');
+  });
+
+  it('responde o horário do service desk pela central de ajuda', () => {
+    const r = runAgent({ type: 'text', text: 'Qual o horário do service desk?' }, env());
+    expect(texts(r.blocks)).toContain('das 8h às 18h');
+    expect(r.tools).toEqual(['buscou na central de ajuda']);
   });
 });
 

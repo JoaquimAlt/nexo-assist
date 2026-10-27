@@ -832,3 +832,47 @@
 .c-out .decision {
   margin: 4px 4px 0;
 }
+
+/* Resumo da transferência */
+.handoff-summary {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--subtle);
+  font-size: 13px;
+}
+
+.handoff-summary summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.handoff-summary dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.handoff-summary dt {
+  color: var(--muted);
+}
+
+.handoff-summary dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .handoff-summary dl {
+    grid-template-columns: 1fr;
+  }
+}

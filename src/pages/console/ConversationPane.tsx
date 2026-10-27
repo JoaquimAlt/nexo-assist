@@ -1,6 +1,6 @@
 import { Fragment, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import {
-  AlertCircle, ArrowLeft, ArrowLeftRight, Bot, CheckCheck, CircleCheck, CircleCheckBig, FileText, Hand, Headphones, ListChecks, MoreVertical, Search, SendHorizontal, X,
+  AlertCircle, ArrowLeft, ArrowLeftRight, Bot, CheckCheck, CircleCheck, CircleCheckBig, ClipboardList, FileText, Hand, Headphones, ListChecks, MoreVertical, Search, SendHorizontal, X,
 } from 'lucide-react';
 import type { Block, Conversation, DB, EventIcon, Message, User } from '../../data/types';
 import { TICKET_STATUS } from '../../data/labels';
@@ -147,6 +147,36 @@ export function ConversationPane({ conv, db, me, panelOpen, onTogglePanel, onBac
       </div>
 
       <footer className="pane-foot">
+        {conv.handoff && (conv.status === 'waiting' || conv.status === 'help' || conv.status === 'human') && (
+          <details className="handoff-summary" open={conv.status !== 'human'}>
+            <summary>
+              <ClipboardList size={15} /> Resumo do agent para o analista
+            </summary>
+            <dl>
+              <dt>Motivo</dt>
+              <dd>{conv.handoff.reason}</dd>
+              {conv.handoff.ticket && (
+                <>
+                  <dt>Chamado</dt>
+                  <dd>{conv.handoff.ticket}</dd>
+                </>
+              )}
+              {conv.handoff.report && (
+                <>
+                  <dt>Relato</dt>
+                  <dd>{conv.handoff.report}</dd>
+                </>
+              )}
+              {conv.handoff.tried.length > 0 && (
+                <>
+                  <dt>Já feito</dt>
+                  <dd>{conv.handoff.tried.join(' · ')}</dd>
+                </>
+              )}
+            </dl>
+          </details>
+        )}
+
         {(conv.status === 'waiting' || conv.status === 'help') && (
           <div className="handoff">
             <span className="handoff-icon">{conv.status === 'help' ? <AlertCircle size={18} /> : <Hand size={18} />}</span>

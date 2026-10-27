@@ -244,6 +244,10 @@
   color: var(--muted);
 }
 
+.tool-warn {
+  color: var(--amber-text);
+}
+
 .tool-running {
   color: var(--primary);
 }
@@ -289,6 +293,9 @@
   border-radius: 7px;
   background: var(--bg);
   font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .chip:hover:not(:disabled) {
@@ -464,7 +471,7 @@
 
 .draft-form-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
 }
 
