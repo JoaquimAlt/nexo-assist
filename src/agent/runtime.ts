@@ -109,7 +109,9 @@ function commitReply(convId: string, result: AgentReply) {
     if (c.status !== 'agent') return;
 
     const previousAssistant = c.messages.findLast((m) => m.author === 'assistant');
-    c.messages.push(newMessage({ author: 'assistant', blocks: result.blocks, tools: result.tools.length ? result.tools : undefined }, now));
+    c.messages.push(
+      newMessage({ author: 'assistant', blocks: result.blocks, tools: result.tools.length ? result.tools : undefined, decision: result.decision }, now),
+    );
     c.agent = result.context;
     if (result.blocks.some((b) => b.type === 'draft')) db.seq.draft++;
     for (const effect of result.effects) applyEffect(db, c, effect, now, previousAssistant);

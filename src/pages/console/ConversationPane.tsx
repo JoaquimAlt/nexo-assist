@@ -9,6 +9,7 @@ import { messageText, ticketById, userById } from '../../store/selectors';
 import { dayLabel, hhmm } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
 import { Avatar, Menu } from '../../components/ui';
+import { DecisionDetails } from '../../components/DecisionDetails';
 
 const EVENT_ICONS: Record<EventIcon, typeof Bot> = {
   transfer: ArrowLeftRight,
@@ -307,6 +308,7 @@ function ConsoleMessage({ m, db, dim, hit }: { m: Message; db: DB; dim: boolean;
           {hhmm(m.at)} <CheckCheck size={14} />
         </span>
       </div>
+      {m.decision && <DecisionDetails decision={m.decision} />}
     </div>
   );
 }

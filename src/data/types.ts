@@ -63,7 +63,24 @@ export type Block =
   | { type: 'ticket'; ticketId: string }
   | { type: 'draft'; draft: TicketDraft; state: 'pending' | 'confirmed' | 'cancelled'; ticketId?: string };
 
-export type EventIcon = 'transfer' | 'headset' | 'bot' | 'check' | 'alert';
+export interface DecisionFact {
+  label: string;
+  value: string;
+}
+
+/** Como o assistente chegou a uma resposta: o que entendeu, o que fez, com que segurança e por quê. */
+export interface Decision {
+  /** O que disparou a resposta: texto livre, botão, escolha na lista... */
+  trigger: string;
+  intent: string;
+  understood: DecisionFact[];
+  action: string;
+  /** Segurança na interpretação, de 0 a 1. */
+  confidence: number;
+  reasons: string[];
+}
+
+export type EventIcon ='transfer' | 'headset' | 'bot' | 'check' | 'alert';
 
 export interface Message {
   id: string;
@@ -75,6 +92,8 @@ export interface Message {
   blocks?: Block[];
   /** Ferramentas que o assistente usou antes de responder. */
   tools?: string[];
+  /** Detalhe da decisão por trás da resposta do assistente. */
+  decision?: Decision;
   analyst?: { name: string; team: string };
   /** Eventos têm um texto próprio para o colaborador. */
   event?: { icon: EventIcon; contactText?: string };

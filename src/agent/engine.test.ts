@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Block, Conversation, Message } from '../data/types';
 import { createSeed } from '../data/seed';
-import { detectAffected, normalize, runAgent, type AgentEnv } from './engine';
+import { CONFIDENCE, detectAffected, normalize, runAgent, type AgentEnv } from './engine';
 
 // Uma quarta-feira às 11:43, como no protótipo.
 const NOW = new Date(2026, 9, 21, 11, 43);
@@ -91,6 +91,48 @@ describe('abertura de chamado', () => {
     const r = runAgent({ type: 'text', text: 'Meu notebook continua muito lento' }, env());
     expect(r.blocks[0]).toEqual({ type: 'ticket', ticketId: 'INC-20311' });
     expect(texts(r.blocks)).toContain('Você já tem o INC-20311');
+  });
+});
+
+describe('detalhe da decisão', () => {
+  it('explica por que a prioridade ficou alta', () => {
+    const first = runAgent({ type: 'text', text: 'Meu notebook não conecta na VPN desde ontem. Aparece o erro 809.' }, env());
+    const r = runAgent({ type: 'text', text: 'Só eu. Tenho reunião com um cliente às 14h.' }, env({ agent: first.context }));
+    expect(r.decision).toMatchObject({ trigger: 'Mensagem de texto', intent: 'Abrir um chamado', confidence: CONFIDENCE.keyword });
+    expect(r.decision.understood).toContainEqual({ label: 'Urgência', value: '“reuniao”' });
+    expect(r.decision.reasons.join(' ')).toContain('compromisso em risco → prioridade alta');
+    expect(r.decision.reasons.join(' ')).toContain('Só cria o chamado depois da sua confirmação');
+  });
+
+  it('registra que o artigo não vale para o sistema da colaboradora', () => {
+    const r = runAgent({ type: 'text', text: 'Meu notebook não conecta na VPN desde ontem. Aparece o erro 809.' }, env());
+    expect(r.decision.understood).toEqual(
+      expect.arrayContaining([
+        { label: 'Categoria', value: 'Rede e VPN' },
+        { label: 'Código de erro', value: '809' },
+        { label: 'Sistema', value: 'Windows 11' },
+      ]),
+    );
+    expect(r.decision.reasons).toContain('O artigo “VPN: erro 809 no Windows 10” vale só para Windows 10; o seu computador é Windows 11.');
+  });
+
+  it('dá confiança máxima a botões e mínima quando nada se aplica', () => {
+    const button = runAgent({ type: 'choice', messageId: 'm', blockIndex: 0, value: 'start:status', label: 'Ver meus chamados' }, env());
+    expect(button.decision).toMatchObject({ trigger: 'Botão “Ver meus chamados”', confidence: CONFIDENCE.explicit });
+
+    const unknown = runAgent({ type: 'text', text: 'hmm' }, env());
+    expect(unknown.decision).toMatchObject({ intent: 'Não identificada', confidence: CONFIDENCE.none });
+  });
+
+  it('justifica a recusa de um chamado de outra pessoa pela privacidade', () => {
+    const r = runAgent({ type: 'text', text: 'e o INC-20502?' }, env());
+    expect(r.decision.reasons[0]).toContain('por privacidade');
+  });
+
+  it('aponta o prazo vencido em dias úteis', () => {
+    const r = runAgent({ type: 'pick-ticket', messageId: 'm', ticketId: 'INC-20311' }, env());
+    expect(r.decision.action).toBe('Apontou o prazo vencido e ofereceu um analista');
+    expect(r.decision.reasons.join(' ')).toMatch(/dias úteis; o prazo para prioridade média é 3 dias úteis\. Está vencido/);
   });
 });
 

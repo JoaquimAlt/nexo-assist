@@ -10,6 +10,7 @@ import { responseDeadline } from '../../lib/sla';
 import { dayMonth, hhmm } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
 import { TicketCard } from '../../components/TicketCard';
+import { DecisionDetails } from '../../components/DecisionDetails';
 import { Dot, StatusLabel } from '../../components/ui';
 
 const SUGGESTIONS = ['Qual o status do meu chamado?', 'Meu notebook não conecta na VPN desde ontem. Aparece o erro 809.', 'A impressora do meu andar não imprime.'];
@@ -207,6 +208,7 @@ function MessageView({ m, conv, db, now, active }: { m: Message; conv: Conversat
           </span>
         ))}
       </div>
+      {m.decision && <DecisionDetails decision={m.decision} />}
       {m.blocks?.map((b, i) => <BlockView key={i} block={b} index={i} message={m} conv={conv} db={db} now={now} active={active} />)}
     </div>
   );

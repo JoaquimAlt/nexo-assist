@@ -828,3 +828,7 @@
     flex: 1;
   }
 }
+
+.c-out .decision {
+  margin: 4px 4px 0;
+}
