@@ -43,17 +43,6 @@ Outros colaboradores dos dados de exemplo: `carla.mendes@`, `bruno.tavares@`, `d
 
 Para voltar ao estado inicial: menu do avatar no console › **Restaurar dados de demonstração**.
 
-## Deploy na Vercel
-
-O projeto roda inteiro na Vercel: o front é estático e a API vira uma função (`api/[[...route]].ts`, que usa o mesmo app Hono do servidor local).
-
-1. Importe o repositório na Vercel. O `vercel.json` já define o build (`npm run build`), a pasta `dist` e a função da API.
-2. Em **Storage**, crie um **Upstash Redis** (há plano gratuito) e conecte ao projeto. Ele cria `KV_REST_API_URL` e `KV_REST_API_TOKEN`; sem eles, a função não tem onde guardar conversas e chamados entre uma requisição e outra.
-3. Em **Settings › Environment Variables**, adicione `GOOGLE_API_KEY`, `NEXO_MODEL` (o mesmo valor do seu `.env`) e um `LLM_DAILY_LIMIT` baixo (ex.: `200`).
-4. Faça o deploy. Na primeira requisição, o banco é preenchido com os dados de demonstração.
-
-**Proteção de chave e custo**, como pede o PRD: a chave fica só nas variáveis de ambiente da Vercel (nunca no repositório nem no navegador); o projeto do Google fica no nível gratuito, sem faturamento; `LLM_DAILY_LIMIT` limita as chamadas ao modelo por dia, e o limite de 30 mensagens por conversa é validado no servidor. Se o modelo estiver sobrecarregado ou o limite acabar, o agent continua funcionando pelas regras.
-
 ## Arquitetura
 
 ```
