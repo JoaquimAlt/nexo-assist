@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import type { Block, Conversation, DB, EventIcon, Message, User } from '../../data/types';
 import { TICKET_STATUS } from '../../data/labels';
-import { analystTyping, assume, closeConversation, markUnread, returnToAgent, sendAsAnalyst } from '../../store/consoleActions';
+import { analystTyping, assume, closeConversation, markUnread, returnToAgent, sendAsAnalyst } from '../../api/actions';
 import { messageText, ticketById, userById } from '../../store/selectors';
 import { dayLabel, hhmm } from '../../lib/time';
 import { useNow } from '../../lib/useNow';

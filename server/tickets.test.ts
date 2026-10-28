@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { resetDB } from '../store/store';
+import { resetDB } from './db';
 import { TicketAccessError, TicketServiceError, configureTicketService, ticketService, withRetry } from './tickets';
 
 beforeEach(() => {

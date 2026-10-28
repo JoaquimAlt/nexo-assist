@@ -1,67 +1,40 @@
 import { useSyncExternalStore } from 'react';
 import type { User } from '../data/types';
-import { getDB, useDB } from './store';
+import { CORPORATE_DOMAIN } from '../lib/limits';
+import { ApiError, api, getSession, onSessionChange, setSession } from '../api/client';
+import { useDB } from './store';
 
-/**
- * A sessão vive no sessionStorage (por aba), para que seja possível abrir
- * a colaboradora e o analista lado a lado. "Manter conectado" também grava
- * no localStorage, que é lido quando uma aba nova é aberta.
- */
-const KEY = 'nexo-assist:session';
+export { CORPORATE_DOMAIN };
+
+/** Senha sugerida nos atalhos de demonstração; o servidor aceita qualquer senha. */
 export const DEMO_PASSWORD = 'nexo2026';
-export const CORPORATE_DOMAIN = '@nexo.com.br';
 
-function read() {
-  try {
-    return sessionStorage.getItem(KEY) ?? localStorage.getItem(KEY);
-  } catch {
-    return null;
-  }
-}
-
-let current = read();
-const listeners = new Set<() => void>();
-const emit = () => listeners.forEach((l) => l());
-
-function subscribe(l: () => void) {
-  listeners.add(l);
-  return () => {
-    listeners.delete(l);
-  };
-}
+const subscribeSession = (l: () => void) => onSessionChange(l);
 
 export function useCurrentUser(): User | null {
-  const id = useSyncExternalStore(subscribe, () => current);
+  const session = useSyncExternalStore(subscribeSession, getSession);
   const db = useDB();
-  return id ? (db.users.find((u) => u.id === id) ?? null) : null;
+  return session ? (db.users.find((u) => u.id === session.userId) ?? null) : null;
 }
+
+/** Há sessão, mesmo que o estado ainda esteja carregando. */
+export const useHasSession = () => !!useSyncExternalStore(subscribeSession, getSession);
 
 export type LoginResult = { ok: true; user: User } | { ok: false; error: string };
 
-export function login(email: string, password: string, remember: boolean): LoginResult {
-  const user = getDB().users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
-  if (!user || password !== DEMO_PASSWORD) return { ok: false, error: 'E-mail ou senha incorretos.' };
+export async function login(email: string, password: string, remember: boolean): Promise<LoginResult> {
   try {
-    sessionStorage.setItem(KEY, user.id);
-    if (remember) localStorage.setItem(KEY, user.id);
-    else localStorage.removeItem(KEY);
-  } catch {
-    // sem armazenamento: a sessão fica só em memória
+    const { token, user } = await api<{ token: string; user: User }>('/login', { email, password });
+    setSession({ token, userId: user.id }, remember);
+    return { ok: true, user };
+  } catch (err) {
+    return { ok: false, error: err instanceof ApiError ? err.message : 'Não foi possível entrar.' };
   }
-  current = user.id;
-  emit();
-  return { ok: true, user };
 }
 
 export function logout() {
-  try {
-    sessionStorage.removeItem(KEY);
-    if (localStorage.getItem(KEY) === current) localStorage.removeItem(KEY);
-  } catch {
-    // ignora
-  }
-  current = null;
-  emit();
+  api('/logout', {}).catch(() => undefined);
+  setSession(null);
 }
 
 export const homeFor = (u: User) => (u.role === 'analista' ? '/console' : '/atendimento');

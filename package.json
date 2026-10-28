@@ -4,21 +4,31 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "node --watch --import tsx server/index.ts",
+    "dev:web": "vite",
+    "build": "tsc && tsc -p tsconfig.server.json && vite build",
+    "start": "tsx server/index.ts",
     "preview": "vite preview",
     "test": "vitest run"
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "@mastra/core": "^1.79.0",
+    "hono": "^4.13.14",
     "lucide-react": "^0.511.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router-dom": "^7.6.0"
+    "react-router-dom": "^7.6.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/node": "^26.6.5",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^10.0.6",
+    "tsx": "^4.23.15",
     "typescript": "~5.8.3",
     "vite": "^6.3.5",
     "vitest": "^3.1.4"

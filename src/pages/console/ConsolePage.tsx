@@ -4,7 +4,7 @@ import type { Conversation } from '../../data/types';
 import { logout, useCurrentUser } from '../../store/auth';
 import { resetDB, useDB } from '../../store/store';
 import { lastActivity, messageText, needsHuman, unreadCount, userById } from '../../store/selectors';
-import { markRead } from '../../store/consoleActions';
+import { markRead } from '../../api/actions';
 import { Avatar, LogoMark, Menu } from '../../components/ui';
 import { useNow } from '../../lib/useNow';
 import { ConversationList, type Filter } from './ConversationList';

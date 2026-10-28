@@ -5,7 +5,8 @@ import { AFFECTED, CATEGORIES, PRIORITY, TICKET_KIND, TICKET_STATUS } from '../.
 import { useCurrentUser } from '../../store/auth';
 import { useDB } from '../../store/store';
 import { activeConversation, countMessages, ticketById, userById } from '../../store/selectors';
-import { MESSAGE_LIMIT, contactTyping, recoverStale, restartConversation, sendToConversation, startConversation, updateDraft } from '../../agent/runtime';
+import { MESSAGE_LIMIT } from '../../lib/limits';
+import { contactTyping, restartConversation, sendToConversation, startConversation, updateDraft } from '../../api/actions';
 import { slaDeadline } from '../../lib/sla';
 import { dayMonth, dueLabel, hhmm } from '../../lib/time';
 import { useNow } from '../../lib/useNow';
@@ -21,13 +22,8 @@ export default function ChatPage() {
   const conv = activeConversation(db, user.id);
 
   useEffect(() => {
-    if (!conv) startConversation(user.id);
-  }, [conv, user.id]);
-
-  const convId = conv?.id;
-  useEffect(() => {
-    if (convId) recoverStale(convId);
-  }, [convId]);
+    if (!conv) startConversation();
+  }, [conv]);
 
   if (!conv) return null;
   return <ChatView key={conv.id} conv={conv} user={user} db={db} />;

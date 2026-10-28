@@ -1,15 +1,18 @@
-import type { AgentInput, Block, Conversation, DB, Message, Ticket, TicketDraft } from '../data/types';
-import { getDB, updateDB } from '../store/store';
-import { HANDOFF_HOURS } from '../lib/sla';
-import { uid } from '../lib/id';
-import { peekNextIds, ticketService, withRetry } from '../services/tickets';
-import { CONFIDENCE, QUEUE, runAgent, triggerOf, type AgentEffect, type AgentReply } from './engine';
-
-/** Limite de mensagens por conversa (colaborador + respostas). */
-export const MESSAGE_LIMIT = 30;
+import type { AgentInput, Block, Conversation, DB, Message, Ticket, TicketDraft } from '../src/data/types';
+import { HANDOFF_HOURS } from '../src/lib/sla';
+import { MESSAGE_LIMIT } from '../src/lib/limits';
+import { uid } from '../src/lib/id';
+import { countMessages } from '../src/store/selectors';
+import { CONFIDENCE, QUEUE, runAgent, triggerOf, type AgentEffect, type AgentReply } from '../src/agent/engine';
+import { getDB, updateDB } from './db';
+import { interpret } from './llm';
+import { peekNextIds, ticketService, withRetry } from './tickets';
 
 /** Tentativas no sistema de chamados antes de desistir. */
 const ATTEMPTS = 3;
+
+/** Com essa confiança nas regras, o modelo não é chamado (assunto reconhecido, palavra-chave clara, botão). */
+const RULES_ARE_ENOUGH = CONFIDENCE.topic;
 
 export const newMessage = (partial: Omit<Message, 'id' | 'at'>, at = new Date()): Message => ({ id: uid(), at: at.toISOString(), ...partial });
 
@@ -78,8 +81,8 @@ export async function sendToConversation(convId: string, input: AgentInput, echo
 
   updateDB((db) => {
     const c = findConv(db, convId);
-    if (!c || c.status === 'closed') return;
-    if (echo) c.messages.push(newMessage({ author: 'contact', text: echo }, startedAt));
+    if (!c || c.status === 'closed' || countMessages(c) >= MESSAGE_LIMIT) return;
+    if (echo) c.messages.push(newMessage({ author: 'contact', text: echo.slice(0, 1000) }, startedAt));
     if (input.type === 'choice') markChoice(c, input.value, input.messageId, input.blockIndex);
     if (input.type === 'pick-ticket') {
       const b = c.messages.find((m) => m.id === input.messageId)?.blocks?.find((x) => x.type === 'ticket-picker');
@@ -88,8 +91,10 @@ export async function sendToConversation(convId: string, input: AgentInput, echo
     if (c.status === 'resolved') c.status = 'agent';
     c.contactTypingUntil = undefined;
     agentTurn = c.status === 'agent' && !c.pending;
-    // Enquanto consulta o sistema de chamados, mostra o "digitando".
-    if (agentTurn) c.pending = { tools: [], startedAt: startedAt.toISOString(), durationMs: 8000 };
+    // Enquanto consulta o sistema de chamados e o modelo, mostra o "digitando".
+    if (agentTurn) {
+      c.pending = { tools: input.type === 'text' ? ['entendendo a mensagem'] : [], startedAt: startedAt.toISOString(), durationMs: 20_000 };
+    }
   });
 
   if (!agentTurn) return;
@@ -112,11 +117,36 @@ export async function sendToConversation(convId: string, input: AgentInput, echo
     return;
   }
 
+  const envFor = (conversation: Conversation) => ({
+    user,
+    tickets,
+    conversation,
+    now: new Date(),
+    nextIds: peekNextIds(),
+    nextDraftId: `D-${getDB().seq.draft}`,
+  });
+
+  // Primeiro as regras, que são instantâneas. O modelo só entra numa mensagem de texto que
+  // as regras não entenderam com segurança; botões e confirmações nunca precisam dele.
+  let result = runAgent(input, envFor(c));
+  if (input.type === 'text') {
+    if (result.decision.confidence >= RULES_ARE_ENOUGH) {
+      result = { ...result, decision: { ...result.decision, source: { kind: 'regras', note: 'As regras entenderam com segurança; o modelo não foi necessário.' } } };
+    } else {
+      const { interpretation, source } = await interpret({ text: input.text, user, tickets, conversation: c, context: c.agent ?? {}, now: new Date() });
+      const fresh = findConv(getDB(), convId);
+      if (!fresh || fresh.status !== 'agent') {
+        setPending(convId, undefined);
+        return;
+      }
+      result = runAgent(input, { ...envFor(fresh), interpretation, source });
+    }
+  }
+
   const now = new Date();
-  const result = runAgent(input, { user, tickets, conversation: c, now, nextIds: peekNextIds(), nextDraftId: `D-${db.seq.draft}` });
 
   // O tempo de "pensar" acompanha as ferramentas, que aparecem uma a uma na interface.
-  const durationMs = 700 + result.tools.length * 650 + Math.round(Math.random() * 400);
+  const durationMs = 500 + result.tools.length * 450 + Math.round(Math.random() * 300);
   setPending(convId, { tools: result.tools, startedAt: now.toISOString(), durationMs });
   await wait(durationMs);
   await commitReply(convId, input, result, failures);

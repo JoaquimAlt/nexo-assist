@@ -1,46 +1,22 @@
 import { useSyncExternalStore } from 'react';
 import type { DB } from '../data/types';
-import { createSeed, SEED_VERSION } from '../data/seed';
+import { SEED_VERSION } from '../data/seed';
+import { api, fire, getSession, onSessionChange, reportError } from '../api/client';
 
 /**
- * "Backend" simulado: um único documento persistido no localStorage.
- * O evento `storage` sincroniza abas, então o colaborador e o analista
- * podem conversar em duas abas do mesmo navegador.
+ * Cópia local do que o servidor deixa esta pessoa ver. O servidor avisa cada
+ * mudança por eventos (SSE) e a cópia é buscada de novo; por isso colaborador
+ * e analista conversam ao vivo, em abas ou máquinas diferentes.
  */
-const KEY = 'nexo-assist:db';
-const hasStorage = typeof window !== 'undefined' && typeof localStorage !== 'undefined';
+const EMPTY: DB = { version: SEED_VERSION, users: [], tickets: [], conversations: [], seq: { inc: 0, req: 0, draft: 0 }, analystAvailable: true };
 
-function load(): DB {
-  if (hasStorage) {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
-        const db = JSON.parse(raw) as DB;
-        if (db.version === SEED_VERSION) return db;
-      }
-    } catch {
-      // dados corrompidos: recomeça do seed
-    }
-  }
-  return createSeed();
-}
-
-function persist() {
-  if (!hasStorage) return;
-  try {
-    localStorage.setItem(KEY, JSON.stringify(state));
-  } catch {
-    // armazenamento cheio ou bloqueado: segue só em memória
-  }
-}
-
-let state = load();
-persist();
-
+let state: DB = EMPTY;
+let loaded = false;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
 export const getDB = () => state;
+export const isLoaded = () => loaded;
 
 export function subscribe(listener: () => void) {
   listeners.add(listener);
@@ -49,33 +25,65 @@ export function subscribe(listener: () => void) {
   };
 }
 
-/** Aplica uma mutação sobre uma cópia do estado, persiste e notifica. */
-export function updateDB(mutate: (db: DB) => void) {
-  const next = structuredClone(state);
-  mutate(next);
-  state = next;
-  persist();
-  emit();
-}
+let inFlight: Promise<void> | null = null;
+let again = false;
 
-export function resetDB() {
-  state = createSeed();
-  persist();
-  emit();
-}
-
-if (hasStorage) {
-  window.addEventListener('storage', (e) => {
-    if (e.key !== KEY || !e.newValue) return;
-    try {
-      state = JSON.parse(e.newValue) as DB;
+/** Busca o estado; pedidos que chegam durante a busca viram uma busca só, logo depois. */
+export function refresh(): Promise<void> {
+  if (inFlight) {
+    again = true;
+    return inFlight;
+  }
+  inFlight = api<DB>('/state')
+    .then((db) => {
+      state = db;
+      loaded = true;
+      reportError(null);
       emit();
-    } catch {
-      // ignora escrita parcial de outra aba
-    }
-  });
+    })
+    .catch((err: unknown) => {
+      if (getSession()) reportError(err instanceof Error ? err.message : 'Sem conexão com o servidor.');
+    })
+    .finally(() => {
+      inFlight = null;
+      if (again) {
+        again = false;
+        void refresh();
+      }
+    });
+  return inFlight;
+}
+
+let source: EventSource | null = null;
+
+function connect() {
+  source?.close();
+  source = null;
+  const session = getSession();
+  if (!session) {
+    state = EMPTY;
+    loaded = false;
+    emit();
+    return;
+  }
+  void refresh();
+  source = new EventSource(`/api/events?token=${encodeURIComponent(session.token)}`);
+  source.addEventListener('change', () => void refresh());
+  source.onerror = () => reportError('Reconectando ao servidor…');
+  source.onopen = () => reportError(null);
+}
+
+if (typeof window !== 'undefined') {
+  onSessionChange(connect);
+  connect();
 }
 
 export function useDB() {
   return useSyncExternalStore(subscribe, getDB);
+}
+
+export const useLoaded = () => useSyncExternalStore(subscribe, isLoaded);
+
+export function resetDB() {
+  fire('/console/reset');
 }

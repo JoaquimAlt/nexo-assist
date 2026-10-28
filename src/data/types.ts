@@ -72,8 +72,19 @@ export interface DecisionFact {
   value: string;
 }
 
+/** Quem interpretou a mensagem: o modelo de linguagem ou as regras. */
+export interface DecisionSource {
+  kind: 'llm' | 'regras';
+  model?: string;
+  tokens?: number;
+  latencyMs?: number;
+  /** Por que as regras foram usadas (botão, sem chave, modelo fora do ar...). */
+  note?: string;
+}
+
 /** Como o assistente chegou a uma resposta: o que entendeu, o que fez, com que segurança e por quê. */
 export interface Decision {
+  source?: DecisionSource;
   /** O que disparou a resposta: texto livre, botão, escolha na lista... */
   trigger: string;
   intent: string;
@@ -119,6 +130,40 @@ export interface ProblemInfo {
   text: string;
   extra?: string;
   topic: string;
+  /** Classificação vinda do modelo, quando houver; prevalece sobre as regras. */
+  category?: string;
+  kind?: TicketKind;
+  title?: string;
+  urgency?: string;
+}
+
+export type Intent =
+  | 'consultar_chamados'
+  | 'complementar_chamado'
+  | 'relatar_problema'
+  | 'informar_afetados'
+  | 'falar_com_analista'
+  | 'duvida'
+  | 'fora_de_escopo'
+  | 'cumprimento'
+  | 'agradecimento'
+  | 'nao_entendi';
+
+/** O que o modelo de linguagem entendeu de uma mensagem de texto. As regras decidem a ação a partir disso. */
+export interface Interpretation {
+  intent: Intent;
+  ticketId?: string;
+  category?: string;
+  kind?: TicketKind;
+  title?: string;
+  affected?: Affected;
+  urgency?: string;
+  errorCode?: string;
+  outOfScopeArea?: 'RH' | 'Financeiro' | 'Facilities';
+  kbArticleId?: string;
+  understood: string;
+  confidence: number;
+  reasons: string[];
 }
 
 export interface AgentContext {

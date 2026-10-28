@@ -37,12 +37,11 @@ export default function LoginPage() {
     setErrors(next);
     if (next.email || next.password) return;
     setLoading(true);
-    window.setTimeout(() => {
-      const result = login(email, password, remember);
+    void login(email, password, remember).then((result) => {
       setLoading(false);
       if (result.ok) navigate(homeFor(result.user), { replace: true });
       else setErrors({ form: result.error });
-    }, 450);
+    });
   };
 
   const submitForgot = (e: FormEvent) => {
@@ -209,7 +208,7 @@ export default function LoginPage() {
           )}
 
           <div className="login-demo">
-            <span className="muted small">Contas de demonstração · senha {DEMO_PASSWORD}</span>
+            <span className="muted small">Contas de demonstração · qualquer senha</span>
             <div className="login-demo-list">
               {DEMO_ACCOUNTS.map((a) => (
                 <button key={a.email} type="button" className="demo-chip" onClick={() => fillDemo(a.email)}>

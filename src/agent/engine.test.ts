@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Block, Conversation, Message } from '../data/types';
+import type { Block, Conversation, Interpretation, Message } from '../data/types';
 import { createSeed } from '../data/seed';
 import { CONFIDENCE, detectAffected, normalize, runAgent, type AgentEnv } from './engine';
 
@@ -216,6 +216,75 @@ describe('regras do service desk (Anexo A)', () => {
     const r = runAgent({ type: 'text', text: 'Qual o horário do service desk?' }, env());
     expect(texts(r.blocks)).toContain('das 8h às 18h');
     expect(r.tools).toEqual(['buscou na central de ajuda']);
+  });
+});
+
+const llm = (partial: Partial<Interpretation>): Interpretation => ({ intent: 'relatar_problema', understood: 'entendido', confidence: 0.9, reasons: ['motivo do modelo'], ...partial });
+const withLlm = (it: Interpretation, conversation?: Partial<Conversation>): AgentEnv => ({
+  ...env(conversation),
+  interpretation: it,
+  source: { kind: 'llm', model: 'gemini-teste', tokens: 500 },
+});
+
+describe('interpretação pelo modelo', () => {
+  it('usa a categoria, o tipo e o título do modelo quando as regras não reconhecem o assunto', () => {
+    const it1 = llm({ category: 'Software', kind: 'requisicao', title: 'Acesso ao Miro para a equipe de design' });
+    const first = runAgent({ type: 'text', text: 'Gostaria de usar aquele quadro branco online' }, withLlm(it1));
+    expect(first.context.awaiting).toBe('affected');
+    const draft = runAgent({ type: 'choice', messageId: 'x', blockIndex: 0, value: 'aff:eu', label: 'Só eu' }, env({ agent: first.context }));
+    const block = draft.blocks.find((b) => b.type === 'draft');
+    expect(block?.type === 'draft' && block.draft).toMatchObject({ category: 'Software', kind: 'requisicao', title: 'Acesso ao Miro para a equipe de design', priority: 'baixa' });
+  });
+
+  it('não pergunta quem é afetado quando a mensagem já disse', () => {
+    const r = runAgent(
+      { type: 'text', text: 'A internet caiu para o andar inteiro, ninguém da minha equipe consegue trabalhar' },
+      withLlm(llm({ category: 'Rede e VPN', affected: 'equipe', urgency: 'ninguém consegue trabalhar' })),
+    );
+    const block = r.blocks.find((b) => b.type === 'draft');
+    expect(block?.type === 'draft' && block.draft.priority).toBe('critica');
+  });
+
+  it('ignora "afetados" inventado pelo modelo e pergunta', () => {
+    const r = runAgent({ type: 'text', text: 'queria usar aquele quadro branco online nas reuniões' }, withLlm(llm({ category: 'Software', kind: 'requisicao', affected: 'eu' })));
+    expect(r.context.awaiting).toBe('affected');
+    expect(r.blocks.some((b) => b.type === 'draft')).toBe(false);
+  });
+
+  it('mostra no detalhe o entendimento, os motivos e a origem do modelo', () => {
+    const r = runAgent({ type: 'text', text: 'Como faço pra instalar o Figma?' }, withLlm(llm({ intent: 'duvida', kbArticleId: 'instalar-software', understood: 'Quer instalar o Figma.' })));
+    expect(r.decision.source).toMatchObject({ kind: 'llm', model: 'gemini-teste' });
+    expect(r.decision.understood[0]).toEqual({ label: 'Entendimento', value: 'Quer instalar o Figma.' });
+    expect(r.decision.reasons[0]).toBe('motivo do modelo');
+    expect(texts(r.blocks)).toContain('Portal da Empresa › Software');
+  });
+
+  it('não inventa resposta para dúvida sem artigo', () => {
+    const r = runAgent({ type: 'text', text: 'Qual a política de uso de IA generativa?' }, withLlm(llm({ intent: 'duvida' })));
+    expect(texts(r.blocks)).toContain('Não encontrei isso na central de ajuda');
+  });
+
+  it('com confiança baixa, pergunta de novo em vez de agir', () => {
+    const r = runAgent({ type: 'text', text: 'aquilo lá de novo' }, withLlm(llm({ intent: 'relatar_problema', confidence: 0.3 })));
+    expect(r.decision.intent).toBe('Não identificada');
+    expect(r.effects).toEqual([]);
+  });
+
+  it('confirma antes de complementar um chamado', () => {
+    const r = runAgent({ type: 'text', text: 'Agora o notebook também trava ao abrir o Excel' }, withLlm(llm({ intent: 'complementar_chamado', ticketId: 'INC-20311' })));
+    expect(r.effects).toEqual([]);
+    expect(texts(r.blocks)).toContain('Quer que eu acrescente isso ao INC-20311?');
+  });
+
+  it('não mostra chamado de outra pessoa mesmo que o modelo aponte para ele', () => {
+    const r = runAgent({ type: 'text', text: 'como está o INC-20502?' }, withLlm(llm({ intent: 'consultar_chamados', ticketId: 'INC-20502' })));
+    expect(texts(r.blocks)).toContain('Não encontrei o INC-20502 entre os seus chamados');
+    expect(r.blocks.some((b) => b.type === 'ticket' && b.ticketId === 'INC-20502')).toBe(false);
+  });
+
+  it('marca botões como decididos pelas regras, sem modelo', () => {
+    const r = runAgent({ type: 'choice', messageId: 'm', blockIndex: 0, value: 'start:status', label: 'Ver meus chamados' }, env());
+    expect(r.decision.source).toMatchObject({ kind: 'regras', note: expect.stringContaining('não precisa do modelo') });
   });
 });
 

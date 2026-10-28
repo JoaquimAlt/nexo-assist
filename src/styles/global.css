@@ -655,3 +655,35 @@ a:hover {
     margin-top: 6px;
   }
 }
+
+/* Aviso de conexão e carregamento */
+.conn-banner {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 14px;
+  border: 1px solid #f3d29a;
+  border-radius: var(--radius);
+  background: var(--amber-50);
+  color: var(--amber-text);
+  font-size: 13px;
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+}
+
+.app-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.decision-source {
+  color: var(--muted);
+}

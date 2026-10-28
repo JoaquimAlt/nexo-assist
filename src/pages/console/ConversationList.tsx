@@ -1,7 +1,7 @@
 import { CheckCheck, Search } from 'lucide-react';
 import type { Conversation, DB, User } from '../../data/types';
 import type { Tone } from '../../data/labels';
-import { setAvailability } from '../../store/consoleActions';
+import { setAvailability } from '../../api/actions';
 import { messageText, unreadCount, userById } from '../../store/selectors';
 import { listTime } from '../../lib/time';
 import { Avatar, StatusLabel } from '../../components/ui';

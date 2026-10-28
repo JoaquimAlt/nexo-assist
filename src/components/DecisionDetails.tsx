@@ -1,11 +1,19 @@
 import { ChevronRight } from 'lucide-react';
 import type { Tone } from '../data/labels';
-import type { Decision } from '../data/types';
+import type { Decision, DecisionSource } from '../data/types';
 
 export function confidenceLevel(c: number): { label: string; tone: Tone } {
   if (c >= 0.85) return { label: 'alta', tone: 'green' };
   if (c >= 0.6) return { label: 'média', tone: 'amber' };
   return { label: 'baixa', tone: 'red' };
+}
+
+function sourceLabel(s: DecisionSource) {
+  if (s.kind === 'llm') {
+    const extra = [s.tokens !== undefined && `${s.tokens} tokens`, s.latencyMs !== undefined && `${(s.latencyMs / 1000).toFixed(1).replace('.', ',')} s`].filter(Boolean);
+    return `Modelo ${s.model ?? ''}${extra.length ? ` · ${extra.join(' · ')}` : ''}`;
+  }
+  return s.note ?? 'Regras';
 }
 
 /** Painel recolhível com o que o assistente entendeu, o que fez, com que segurança e por quê. */
@@ -24,6 +32,12 @@ export function DecisionDetails({ decision }: { decision: Decision }) {
         <dl className="decision-grid">
           <dt>Entrada</dt>
           <dd>{decision.trigger}</dd>
+          {decision.source && (
+            <>
+              <dt>Interpretação</dt>
+              <dd>{sourceLabel(decision.source)}</dd>
+            </>
+          )}
           <dt>Intenção</dt>
           <dd>{decision.intent}</dd>
           {decision.understood.length > 0 && (

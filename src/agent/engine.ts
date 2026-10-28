@@ -1,7 +1,9 @@
 import type {
-  Affected, AgentContext, AgentInput, Block, Choice, Conversation, Decision, DecisionFact, HandoffSummary, Priority, ProblemInfo, Ticket, TicketDraft, TicketKind, User,
+  Affected, AgentContext, AgentInput, Block, Choice, Conversation, Decision, DecisionFact, DecisionSource, HandoffSummary, Interpretation, Priority, ProblemInfo, Ticket,
+  TicketDraft, TicketKind, User,
 } from '../data/types';
 import { AFFECTED, PRIORITY, TICKET_KIND, TICKET_STATUS } from '../data/labels';
+import { kbById, type KbArticle } from '../data/kb';
 import { HANDOFF_HOURS, REOPEN_DAYS, SLA, canReopen, isOverdue, slaDeadline } from '../lib/sla';
 import { calendarDaysBetween, dayMonth, ddmm, dueLabel, hhmm, hourLabel, relDays } from '../lib/time';
 
@@ -32,6 +34,10 @@ export interface AgentEnv {
   /** Próximo número livre de cada tipo de chamado. */
   nextIds: Record<TicketKind, string>;
   nextDraftId: string;
+  /** Interpretação do modelo para uma mensagem de texto. Sem ela, valem as regras. */
+  interpretation?: Interpretation;
+  /** Origem da interpretação, para o detalhe da decisão. */
+  source?: DecisionSource;
 }
 
 export interface AgentReply {
@@ -64,6 +70,9 @@ export const CONFIDENCE = {
 
 /** Respostas seguidas sem entender o pedido antes de chamar um analista. */
 export const MAX_MISSES = 2;
+
+/** Abaixo disso, a interpretação do modelo não é usada para agir. */
+export const LOW_CONFIDENCE = 0.5;
 
 export const normalize = (s: string) =>
   s
@@ -108,15 +117,6 @@ const AFFECTED_CHOICES: Choice[] = [
 // ---------------------------------------------------------------------------
 // Classificação do problema
 
-interface KbArticle {
-  /** Como o artigo é citado: "do erro 809". */
-  ref: string;
-  title: string;
-  steps: string[];
-  /** Sistema operacional a que o artigo se aplica, quando é específico. */
-  os?: string;
-}
-
 interface Topic {
   key: string;
   /** Como o assunto é citado: "Não há chamado aberto sobre VPN". */
@@ -134,21 +134,7 @@ const TOPICS: Topic[] = [
     category: 'Rede e VPN',
     re: /\bvpn\b/,
     title: (n, code) => `VPN não conecta${/notebook|laptop/.test(n) ? ' no notebook' : ''}${code ? ` — erro ${code}` : ''}`,
-    kb: (_n, code) =>
-      code === '809'
-        ? {
-            ref: 'do erro 809',
-            title: 'VPN: erro 809 no Windows 10',
-            os: 'Windows 10',
-            steps: ['Reinstale o cliente de VPN pelo Portal da Empresa › Software.', 'Reinicie o computador.'],
-          }
-        : code
-          ? undefined
-          : {
-              ref: 'de VPN',
-              title: 'VPN não conecta',
-              steps: ['Confira se a internet funciona sem a VPN.', 'Feche o cliente da VPN e abra de novo.', 'Entre com o e-mail corporativo e a senha da rede.'],
-            },
+    kb: (_n, code) => (code === '809' ? kbById('vpn-809') : code ? undefined : kbById('vpn')),
   },
   {
     key: 'impressao',
@@ -156,11 +142,7 @@ const TOPICS: Topic[] = [
     category: 'Hardware',
     re: /impressora|imprimi|impressao/,
     title: () => 'Impressora não imprime',
-    kb: () => ({
-      ref: 'de impressão',
-      title: 'Impressora não imprime',
-      steps: ['Abra Configurações › Bluetooth e dispositivos › Impressoras.', 'Remova a impressora do seu andar.', 'Adicione de novo pelo endereço \\\\print.nexo.local.'],
-    }),
+    kb: () => kbById('impressora'),
   },
   {
     key: 'email',
@@ -168,6 +150,7 @@ const TOPICS: Topic[] = [
     category: 'E-mail',
     re: /outlook|e-?mail|caixa de entrada|\bteams\b/,
     title: (n) => (/\bteams\b/.test(n) ? 'Problema no Teams' : 'Problema no Outlook'),
+    kb: (n) => (/\bteams\b/.test(n) && /fecha|trava|cai|congela/.test(n) ? kbById('teams-cache') : undefined),
   },
   {
     key: 'rede',
@@ -175,11 +158,7 @@ const TOPICS: Topic[] = [
     category: 'Rede e VPN',
     re: /wi-?fi|internet|\brede\b|sem conexao/,
     title: () => 'Sem conexão com a rede',
-    kb: () => ({
-      ref: 'de Wi-Fi',
-      title: 'Sem conexão no Wi-Fi corporativo',
-      steps: ['Esqueça a rede Nexo-Corp nas configurações de Wi-Fi.', 'Conecte de novo com o e-mail corporativo e a senha da rede.'],
-    }),
+    kb: () => kbById('wifi'),
   },
   { key: 'acesso', label: 'acesso', category: 'Acesso', re: /acesso|permiss|\bpasta\b|sharepoint|\bsap\b/ },
   {
@@ -187,14 +166,7 @@ const TOPICS: Topic[] = [
     label: 'software',
     category: 'Software',
     re: /\binstal|software|programa\b|aplicativo|licenca|power ?bi|excel|figma|adobe|\bword\b/,
-    kb: (n) =>
-      /\binstal|baixar/.test(n)
-        ? {
-            ref: 'de instalação',
-            title: 'Instalar programas pelo Portal da Empresa',
-            steps: ['Abra o Portal da Empresa › Software.', 'Procure o programa e clique em Instalar.', 'Aguarde uns 5 minutos e reinicie se for pedido.'],
-          }
-        : undefined,
+    kb: (n) => (/\binstal|baixar/.test(n) ? kbById('instalar-software') : undefined),
   },
   { key: 'perifericos', label: 'periféricos', category: 'Hardware', re: /monitor|mouse|teclado|headset|\bfone\b|webcam|\bdock\b/ },
   {
@@ -209,7 +181,11 @@ const TOPICS: Topic[] = [
 const OTHER: Topic = { key: 'outros', label: 'esse assunto', category: 'Outros', re: /$^/ };
 
 export const detectTopic = (n: string) => TOPICS.find((t) => t.re.test(n)) ?? OTHER;
-const topicByKey = (key: string) => TOPICS.find((t) => t.key === key) ?? OTHER;
+
+/** Assunto montado só com a categoria dada pelo modelo, quando as regras não reconhecem o assunto. */
+const categoryTopic = (category: string): Topic => ({ key: `cat:${category}`, label: category, category, re: /$^/ });
+
+const topicByKey = (key: string) => (key.startsWith('cat:') ? categoryTopic(key.slice(4)) : (TOPICS.find((t) => t.key === key) ?? OTHER));
 
 const errorCode = (n: string) => n.match(/\berro\s*(?:n[o°]?\s*)?(\d{2,5})\b/)?.[1];
 
@@ -314,7 +290,8 @@ function findRelated(n: string, topic: Topic, env: AgentEnv): Ticket | undefined
   if (topic === OTHER) return undefined;
   const mine = stems(n);
   return env.tickets
-    .filter((t) => (t.status !== 'resolvido' || canReopen(t, env.now)) && detectTopic(ticketText(t)).key === topic.key)
+    .filter((t) => t.status !== 'resolvido' || canReopen(t, env.now))
+    .filter((t) => (topic.key.startsWith('cat:') ? t.category === topic.category : detectTopic(ticketText(t)).key === topic.key))
     .map((t) => ({ t, score: [...stems(ticketText(t))].filter((w) => mine.has(w)).length }))
     .filter(({ t, score }) => t.status !== 'resolvido' || score > 0)
     .sort((a, b) => b.score - a.score || Number(a.t.status === 'resolvido') - Number(b.t.status === 'resolvido'))[0]?.t;
@@ -549,6 +526,17 @@ function reopen(t: Ticket, raw: string, env: AgentEnv): Turn {
   );
 }
 
+/** Responde uma dúvida com o artigo da central de ajuda, sem abrir chamado. */
+function answer(article: KbArticle, confidence: number, why?: string): Turn {
+  const body = article.answer ?? `${article.title}:\n${(article.steps ?? []).map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
+  return reply(
+    [text(body, undefined, article.id === 'senha-rede' ? [{ value: 'start:analista', label: 'Falar com um analista' }] : undefined)],
+    {},
+    decide('Dúvida', 'Respondeu com o artigo da central de ajuda', confidence, [why, 'A central de ajuda responde; não precisa de chamado.'], [fact('Artigo', article.title)]),
+    { tools: ['buscou na central de ajuda'] },
+  );
+}
+
 function outOfScope(area: string, where: string): Turn {
   return reply(
     [text(`Esse assunto é do ${area}, não de TI — por aqui eu só consigo ajudar com tecnologia. Procure ${where}.`, undefined, START.slice(0, 2))],
@@ -560,17 +548,33 @@ function outOfScope(area: string, where: string): Turn {
   );
 }
 
-function problem(raw: string, env: AgentEnv, skipExisting: boolean): Turn {
+/** O que o modelo já extraiu da mensagem; prevalece sobre as regras. */
+interface ProblemHint {
+  category?: string;
+  kind?: TicketKind;
+  title?: string;
+  kbArticleId?: string;
+  errorCode?: string;
+  affected?: Affected;
+  urgency?: string;
+  confidence?: number;
+}
+
+function problem(raw: string, env: AgentEnv, skipExisting: boolean, hint: ProblemHint = {}): Turn {
   const n = normalize(raw);
-  const topic = detectTopic(n);
-  const code = errorCode(n);
-  const info: ProblemInfo = { text: raw.trim(), topic: topic.key };
+  const detected = detectTopic(n);
+  const topic = detected === OTHER && hint.category && hint.category !== 'Outros' ? categoryTopic(hint.category) : detected;
+  const code = hint.errorCode ?? errorCode(n);
+  const category = hint.category ?? topic.category;
+  const info: ProblemInfo = { text: raw.trim(), topic: topic.key, category: hint.category, kind: hint.kind, title: hint.title, urgency: hint.urgency };
   const known = topic !== OTHER;
-  const confidence = known ? CONFIDENCE.topic : CONFIDENCE.vague;
-  const classified = known
-    ? `Palavras da mensagem indicam ${topic.label} → categoria ${topic.category}.`
-    : 'Nenhum assunto conhecido na mensagem → categoria Outros.';
-  const understood = [fact('Categoria', known ? topic.category : 'Outros (assunto não reconhecido)'), fact('Código de erro', code)];
+  const confidence = hint.confidence ?? (known ? CONFIDENCE.topic : CONFIDENCE.vague);
+  const classified = hint.category
+    ? `Categoria ${hint.category}, pela interpretação do modelo.`
+    : known
+      ? `Palavras da mensagem indicam ${topic.label} → categoria ${topic.category}.`
+      : 'Nenhum assunto conhecido na mensagem → categoria Outros.';
+  const understood = [fact('Categoria', known || hint.category ? category : 'Outros (assunto não reconhecido)'), fact('Código de erro', code)];
   const skipped = skipExisting ? 'Você disse que é outro problema, então não comparou com os seus chamados.' : undefined;
 
   const related = skipExisting ? undefined : findRelated(n, topic, env);
@@ -623,11 +627,14 @@ function problem(raw: string, env: AgentEnv, skipExisting: boolean): Turn {
   }
 
   const tools = skipExisting ? ['buscou na central de ajuda'] : ['consultou seus chamados', 'buscou na central de ajuda'];
-  const kb = topic.kb?.(n, code);
+  const suggested = kbById(hint.kbArticleId);
+  // Algo parado para a equipe ou a empresa vai direto para o chamado, sem pedir que cada um siga um artigo.
+  const outage = hint.kind !== 'requisicao' && (hint.affected === 'equipe' || hint.affected === 'empresa');
+  const kb: KbArticle | undefined = outage ? undefined : ((suggested?.steps ? suggested : undefined) ?? topic.kb?.(n, code));
   const os = env.user.os;
   const noDuplicate = skipExisting || !known ? undefined : `Não há chamado aberto (nem resolvido há menos de ${REOPEN_DAYS} dias) sobre ${topic.label}.`;
 
-  if (kb && (!kb.os || kb.os === os)) {
+  if (kb?.steps && (!kb.os || kb.os === os)) {
     const steps = kb.steps.map((s, i) => `${i + 1}. ${s}`).join('\n');
     return reply(
       [text(`Encontrei na central de ajuda “${kb.title}”:\n${steps}`, 'Isso resolveu?', [{ value: 'kb:ok', label: 'Resolveu' }, { value: 'kb:no', label: 'Não resolveu' }])],
@@ -653,6 +660,18 @@ function problem(raw: string, env: AgentEnv, skipExisting: boolean): Turn {
   const lead = skipExisting
     ? `Entendi, é outro problema. ${kbNote[0].toUpperCase()}${kbNote.slice(1)}.`
     : `Não há chamado aberto sobre ${topic.label}, e ${kbNote}.`;
+  const kbReason = kb ? `O artigo “${kb.title}” vale só para ${kb.os}; o seu computador é ${os}.` : 'A central de ajuda não tem artigo para esse caso.';
+
+  // A mensagem já disse quem é afetado: não pergunta de novo.
+  if (hint.affected) {
+    const r = buildDraft(info, hint.affected, env, confidence, `A mensagem já diz quem é afetado: ${AFFECTED[hint.affected].toLowerCase()}.`);
+    return {
+      ...r,
+      tools: [...tools, ...r.tools],
+      blocks: [text(`${lead} Vou abrir um chamado.`), ...r.blocks],
+      decision: { ...r.decision, reasons: [skipped, classified, noDuplicate, kbReason, ...r.decision.reasons].filter((x): x is string => !!x) },
+    };
+  }
 
   return reply(
     [text(`${lead} Vou abrir um chamado.`, 'Quem está sendo afetado?', AFFECTED_CHOICES)],
@@ -665,7 +684,7 @@ function problem(raw: string, env: AgentEnv, skipExisting: boolean): Turn {
         skipped,
         classified,
         noDuplicate,
-        kb ? `O artigo “${kb.title}” vale só para ${kb.os}; o seu computador é ${os}.` : 'A central de ajuda não tem artigo para esse caso.',
+        kbReason,
         'Para definir a prioridade, falta saber quem é afetado.',
       ],
       [...understood, fact('Sistema', kb?.os ? os : undefined)],
@@ -678,9 +697,11 @@ export function buildDraft(p: ProblemInfo, affected: Affected, env: AgentEnv, co
   const n = normalize(p.text);
   const full = normalize(`${p.text} ${p.extra ?? ''}`);
   const topic = topicByKey(p.topic);
-  const kind = detectKind(full);
-  const urgency = URGENCY.find((u) => u.re.test(full));
-  const urgencyWord = urgency && full.match(urgency.re)?.[0];
+  const kind = p.kind ?? detectKind(full);
+  const category = p.category ?? topic.category;
+  const matched = URGENCY.find((u) => u.re.test(full));
+  const urgency = matched ?? (p.urgency ? { reason: 'pela urgência', re: /$^/ } : undefined);
+  const urgencyWord = matched ? full.match(matched.re)?.[0] : p.urgency;
 
   // Prioridade = impacto (quantos são afetados) + urgência (compromisso em risco).
   let priority: Priority;
@@ -712,9 +733,9 @@ export function buildDraft(p: ProblemInfo, affected: Affected, env: AgentEnv, co
   const draft: TicketDraft = {
     id: env.nextDraftId,
     kind,
-    title: topic.title?.(n, errorCode(n)) ?? titleFromText(p.text),
+    title: p.title ?? topic.title?.(n, errorCode(n)) ?? titleFromText(p.text),
     description: describe(p, env.now),
-    category: topic.category,
+    category,
     priority,
     affected,
     createdAt: env.now.toISOString(),
@@ -747,7 +768,7 @@ export function buildDraft(p: ProblemInfo, affected: Affected, env: AgentEnv, co
         fact('Afetados', AFFECTED[affected]),
         fact('Urgência', urgencyWord ? `“${urgencyWord}”` : 'nenhuma citada'),
         fact('Horário citado', limit ? hourLabel(limit) : undefined),
-        fact('Categoria', topic.category),
+        fact('Categoria', category),
         fact('Prioridade', PRIORITY[priority].label),
       ],
     ),
@@ -760,7 +781,133 @@ export function buildDraft(p: ProblemInfo, affected: Affected, env: AgentEnv, co
 
 const analystWord = (n: string) => n.match(/\b(analista|atendente|humano|tecnico|pessoa de verdade|falar com alguem)\b/)?.[0];
 
+function thanks(env: AgentEnv, confidence: number): Turn {
+  return reply(
+    [text(`Por nada, ${firstName(env.user)}! Se precisar, é só escrever.`)],
+    {},
+    decide('Agradecimento', 'Encerrou o assunto', confidence, ['A mensagem é um agradecimento, sem pedido novo.']),
+  );
+}
+
+/** Informação nova sobre um chamado aberto: confirma antes de atualizar. */
+function confirmNote(t: Ticket, raw: string, confidence: number): Turn {
+  return reply(
+    [
+      { type: 'ticket', ticketId: t.id },
+      text(`Quer que eu acrescente isso ao ${t.id}?`, undefined, [
+        { value: 'tk:add', label: 'Acrescentar ao chamado' },
+        TK_ANALYST,
+        { value: 'tk:novo', label: 'É outro problema' },
+      ]),
+    ],
+    { problem: { text: raw.trim(), topic: detectTopic(normalize(raw)).key }, focusTicketId: t.id },
+    decide(
+      'Complementar um chamado',
+      `Pediu confirmação para acrescentar ao ${t.id}`,
+      confidence,
+      [`A mensagem traz informação nova sobre o ${t.id}.`, 'Regra do service desk: só atualiza o chamado depois da confirmação.'],
+      [fact('Chamado', `${t.id} · ${t.title}`)],
+    ),
+    { tools: [`consultou o ${t.id}`] },
+  );
+}
+
+/** Mensagem interpretada pelo modelo: a intenção escolhe o caminho, as regras decidem a ação. */
+function onInterpreted(raw: string, it: Interpretation, env: AgentEnv, ctx: AgentContext): Turn {
+  const conf = it.confidence;
+  const askedId = it.ticketId?.toUpperCase();
+  const ticket = askedId ? env.tickets.find((t) => t.id === askedId) : undefined;
+  const n = normalize(raw);
+  // Modelo pequeno às vezes "preenche" quem é afetado sem a mensagem dizer. Só vale se foi a resposta à
+  // pergunta ou se a frase tem pista disso; senão o agent pergunta.
+  const affectedSaid = ctx.awaiting === 'affected' || !!detectAffected(n) || /\b(equipe|time|setor|andar|todos|ninguem|empresa|colegas|so eu)\b/.test(n);
+  const hint: ProblemHint = {
+    category: it.category,
+    kind: it.kind,
+    title: it.title,
+    kbArticleId: it.kbArticleId,
+    errorCode: it.errorCode,
+    affected: affectedSaid ? it.affected : undefined,
+    urgency: it.urgency,
+    confidence: conf,
+  };
+
+  if (it.intent === 'falar_com_analista') return handoff(env, ctx, conf);
+  if (it.intent === 'nao_entendi' || conf < LOW_CONFIDENCE) {
+    return fallback(env, ctx, `O modelo não teve segurança para interpretar a mensagem (confiança ${Math.round(conf * 100)}%).`);
+  }
+  if (ctx.awaiting === 'note' && ctx.focusTicketId) {
+    return addNote(ctx.focusTicketId, raw, conf, `Você estava respondendo o que acrescentar ao ${ctx.focusTicketId}.`);
+  }
+  if (askedId && !ticket && (it.intent === 'consultar_chamados' || it.intent === 'complementar_chamado')) {
+    const r = listTickets(env, conf, `A mensagem cita o ${askedId}, mas ele não está entre os seus chamados; por privacidade, só mostra chamados de quem os abriu.`);
+    return { ...r, blocks: [text(`Não encontrei o ${askedId} entre os seus chamados.`), ...r.blocks] };
+  }
+
+  switch (it.intent) {
+    case 'consultar_chamados':
+      return ticket ? ticketStatus(ticket, env, conf) : listTickets(env, conf);
+    case 'complementar_chamado': {
+      const target = ticket ?? env.tickets.find((t) => t.id === ctx.focusTicketId);
+      if (target && target.status !== 'resolvido') return confirmNote(target, raw, conf);
+      return problem(raw, env, false, hint);
+    }
+    case 'informar_afetados':
+    case 'relatar_problema':
+      if (ctx.awaiting === 'affected' && ctx.problem) {
+        const p: ProblemInfo = {
+          ...ctx.problem,
+          extra: [ctx.problem.extra, raw.trim()].filter(Boolean).join(' '),
+          urgency: ctx.problem.urgency ?? it.urgency,
+        };
+        if (it.affected) return buildDraft(p, it.affected, env, conf, `Resposta à pergunta “Quem está sendo afetado?”: ${AFFECTED[it.affected].toLowerCase()}.`);
+        if (it.intent === 'informar_afetados') {
+          return reply(
+            [text('Anotado. Só pra classificar a prioridade:', 'Quem está sendo afetado?', AFFECTED_CHOICES)],
+            { ...ctx, problem: p },
+            decide('Complementar o relato', 'Guardou a informação e perguntou de novo quem é afetado', conf, ['A mensagem não diz quem é afetado.']),
+          );
+        }
+      }
+      return problem(raw, env, false, hint);
+    case 'duvida': {
+      const article = kbById(it.kbArticleId);
+      if (article) return answer(article, conf);
+      return reply(
+        [text('Não encontrei isso na central de ajuda. Posso abrir um chamado ou chamar um analista.', undefined, START.slice(1))],
+        {},
+        decide('Dúvida', 'Disse que não encontrou resposta e ofereceu opções', conf, [
+          'Nenhum artigo da central de ajuda responde a dúvida.',
+          'Não inventa resposta: oferece abrir chamado ou falar com um analista.',
+        ]),
+        { tools: ['buscou na central de ajuda'] },
+      );
+    }
+    case 'fora_de_escopo': {
+      const scope = OUT_OF_SCOPE.find((s) => s.area === it.outOfScopeArea) ?? OUT_OF_SCOPE[0];
+      return outOfScope(scope.area, scope.where);
+    }
+    case 'cumprimento':
+      return greet(env);
+    case 'agradecimento':
+      return thanks(env, conf);
+  }
+}
+
 function onText(raw: string, env: AgentEnv, ctx: AgentContext): Turn {
+  const it = env.interpretation;
+  if (it) {
+    const turn = onInterpreted(raw, it, env, ctx);
+    return {
+      ...turn,
+      decision: {
+        ...turn.decision,
+        understood: [{ label: 'Entendimento', value: it.understood }, ...turn.decision.understood],
+        reasons: [...new Set([...it.reasons, ...turn.decision.reasons])],
+      },
+    };
+  }
+
   const n = normalize(raw);
 
   if (ctx.awaiting === 'note' && ctx.focusTicketId) {
@@ -798,41 +945,13 @@ function onText(raw: string, env: AgentEnv, ctx: AgentContext): Turn {
   if (/\b(status|andamento|situacao)\b|\bmeus? chamados?\b|\bchamados? abertos?\b/.test(n)) {
     return listTickets(env, CONFIDENCE.keyword, 'A mensagem pergunta sobre seus chamados, sem citar um número.');
   }
-  if (/^(obrigad|valeu|vlw|brigad|resolveu|deu certo|funcionou|perfeito)/.test(n)) {
-    return reply(
-      [text(`Por nada, ${firstName(env.user)}! Se precisar, é só escrever.`)],
-      {},
-      decide('Agradecimento', 'Encerrou o assunto', CONFIDENCE.keyword, ['A mensagem é um agradecimento, sem pedido novo.']),
-    );
-  }
+  if (/^(obrigad|valeu|vlw|brigad|resolveu|deu certo|funcionou|perfeito)/.test(n)) return thanks(env, CONFIDENCE.keyword);
   if (/^(oi|ola|bom dia|boa tarde|boa noite|e ai|opa)\b/.test(n) && n.length < 30) return greet(env);
   if (/\bhorario\b|que horas .*(suporte|service desk|ti)\b|\bplantao\b/.test(n)) {
-    return reply(
-      [text('O service desk atende de segunda a sexta, das 8h às 18h. Chamados críticos têm plantão 24 horas.')],
-      {},
-      decide('Dúvida', 'Respondeu com o artigo da central de ajuda', CONFIDENCE.keyword, [
-        'A mensagem pergunta sobre o horário de atendimento.',
-        'A central de ajuda responde; não precisa de chamado.',
-      ], [fact('Artigo', 'Horário do service desk')]),
-      { tools: ['buscou na central de ajuda'] },
-    );
+    return answer(kbById('horario')!, CONFIDENCE.keyword, 'A mensagem pergunta sobre o horário de atendimento.');
   }
   if (/\bsenha\b/.test(n) && !/vpn|wi-?fi|\bsap\b|sistema/.test(n)) {
-    return reply(
-      [
-        text(
-          'Para trocar a senha da rede, use Meu perfil › Redefinir senha — enviamos um link para o seu e-mail corporativo. Se a conta estiver bloqueada, posso chamar um analista.',
-          undefined,
-          [{ value: 'start:analista', label: 'Falar com um analista' }],
-        ),
-      ],
-      {},
-      decide('Dúvida sobre senha', 'Respondeu com a orientação da central de ajuda', CONFIDENCE.topic, [
-        'A mensagem fala de senha sem citar VPN, Wi-Fi, SAP ou outro sistema → senha da rede.',
-        'A troca de senha é feita pelo próprio colaborador, sem chamado.',
-      ]),
-      { tools: ['buscou na central de ajuda'] },
-    );
+    return answer(kbById('senha-rede')!, CONFIDENCE.topic, 'A mensagem fala de senha sem citar VPN, Wi-Fi, SAP ou outro sistema → senha da rede.');
   }
   if (detectTopic(n) === OTHER) {
     const scope = OUT_OF_SCOPE.find((s) => s.re.test(n));
@@ -999,5 +1118,7 @@ function route(input: AgentInput, env: AgentEnv, ctx: AgentContext): Turn {
 
 export function runAgent(input: AgentInput, env: AgentEnv): AgentReply {
   const turn = route(input, env, env.conversation.agent ?? {});
-  return { ...turn, decision: { trigger: triggerOf(input), ...turn.decision } };
+  const source: DecisionSource =
+    env.source ?? (input.type === 'text' ? { kind: 'regras' } : { kind: 'regras', note: 'Botão ou confirmação: não precisa do modelo.' });
+  return { ...turn, decision: { trigger: triggerOf(input), source, ...turn.decision } };
 }

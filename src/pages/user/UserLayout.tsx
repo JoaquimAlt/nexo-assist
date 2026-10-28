@@ -3,7 +3,7 @@ import { ChevronRight, LogOut, MessageSquare, SquarePen, User as UserIcon } from
 import { logout, useCurrentUser } from '../../store/auth';
 import { useDB } from '../../store/store';
 import { activeConversation, userById } from '../../store/selectors';
-import { restartConversation } from '../../agent/runtime';
+import { restartConversation } from '../../api/actions';
 import { Avatar, LogoMark } from '../../components/ui';
 import type { Conversation, DB } from '../../data/types';
 

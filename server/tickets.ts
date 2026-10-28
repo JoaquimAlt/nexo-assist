@@ -1,6 +1,7 @@
-import type { DB, Priority, Ticket, TicketKind } from '../data/types';
-import { TICKET_KIND } from '../data/labels';
-import { getDB, updateDB } from '../store/store';
+import type { DB, Priority, Ticket, TicketKind } from '../src/data/types';
+import { TICKET_KIND } from '../src/data/labels';
+import { getDB, updateDB } from './db';
+import { env } from './env';
 
 /**
  * Serviço de chamados simulado. Faz o papel do sistema legado: cada chamada
@@ -23,10 +24,8 @@ interface Config {
   random: () => number;
 }
 
-/** `?instavel` na URL deixa o sistema bem instável, para demonstrar as novas tentativas. */
-const unstable = typeof location !== 'undefined' && new URLSearchParams(location.search).has('instavel');
-
-const config: Config = { failureRate: unstable ? 0.5 : 0.08, latencyMs: [150, 450], random: Math.random };
+/** LEGACY_FAILURE_RATE no .env controla a instabilidade, para demonstrar as novas tentativas. */
+const config: Config = { failureRate: env.legacyFailureRate, latencyMs: [150, 450], random: Math.random };
 
 export function configureTicketService(next: Partial<Config>) {
   Object.assign(config, next);
