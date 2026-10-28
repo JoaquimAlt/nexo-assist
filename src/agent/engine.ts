@@ -1,11 +1,11 @@
 import type {
   Affected, AgentContext, AgentInput, Block, Choice, Conversation, Decision, DecisionFact, DecisionSource, HandoffSummary, Interpretation, Priority, ProblemInfo, Ticket,
   TicketDraft, TicketKind, User,
-} from '../data/types';
-import { AFFECTED, PRIORITY, TICKET_KIND, TICKET_STATUS } from '../data/labels';
-import { kbById, type KbArticle } from '../data/kb';
-import { HANDOFF_HOURS, REOPEN_DAYS, SLA, canReopen, isOverdue, slaDeadline } from '../lib/sla';
-import { calendarDaysBetween, dayMonth, ddmm, dueLabel, hhmm, hourLabel, relDays } from '../lib/time';
+} from '../data/types.js';
+import { AFFECTED, PRIORITY, TICKET_KIND, TICKET_STATUS } from '../data/labels.js';
+import { kbById, type KbArticle } from '../data/kb.js';
+import { HANDOFF_HOURS, REOPEN_DAYS, SLA, canReopen, isOverdue, slaDeadline } from '../lib/sla.js';
+import { calendarDaysBetween, dayMonth, ddmm, dueLabel, hhmm, hourLabel, relDays } from '../lib/time.js';
 
 /**
  * Motor do Nexo Assist. Função pura: recebe a entrada do colaborador e o

@@ -1,13 +1,13 @@
 import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
-import type { AgentContext, Conversation, DecisionSource, Interpretation, Ticket, User } from '../src/data/types';
-import { CATEGORIES, PRIORITY, TICKET_STATUS } from '../src/data/labels';
-import { KB } from '../src/data/kb';
-import { messageText } from '../src/store/selectors';
-import { canReopen, isOverdue } from '../src/lib/sla';
-import { calendarDaysBetween, relDays } from '../src/lib/time';
-import { updateDB } from './db';
-import { env } from './env';
+import type { AgentContext, Conversation, DecisionSource, Interpretation, Ticket, User } from '../src/data/types.js';
+import { CATEGORIES, PRIORITY, TICKET_STATUS } from '../src/data/labels.js';
+import { KB } from '../src/data/kb.js';
+import { messageText } from '../src/store/selectors.js';
+import { canReopen, isOverdue } from '../src/lib/sla.js';
+import { calendarDaysBetween, relDays } from '../src/lib/time.js';
+import { updateDB } from './db.js';
+import { env } from './env.js';
 
 /**
  * O modelo só INTERPRETA a mensagem: intenção, dados extraídos, confiança e

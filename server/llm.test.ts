@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createSeed } from '../src/data/seed';
-import { buildPrompt, interpret, interpretationSchema, toInterpretation } from './llm';
+import { createSeed } from '../src/data/seed.js';
+import { buildPrompt, interpret, interpretationSchema, toInterpretation } from './llm.js';
 
 const NOW = new Date(2026, 9, 21, 11, 43);
 const db = createSeed(NOW);

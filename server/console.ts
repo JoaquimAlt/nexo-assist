@@ -1,6 +1,6 @@
-import type { DB, User } from '../src/data/types';
-import { newMessage } from './runtime';
-import { updateDB } from './db';
+import type { DB, User } from '../src/data/types.js';
+import { newMessage } from './runtime.js';
+import { updateDB } from './db.js';
 
 const findConv = (db: DB, id: string) => db.conversations.find((c) => c.id === id);
 const firstName = (name: string) => name.split(' ')[0];

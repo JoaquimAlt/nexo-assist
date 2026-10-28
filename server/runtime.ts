@@ -1,13 +1,13 @@
-import type { AgentInput, Block, Conversation, DB, Message, Ticket, TicketDraft } from '../src/data/types';
-import { HANDOFF_HOURS } from '../src/lib/sla';
-import { MESSAGE_LIMIT } from '../src/lib/limits';
-import { uid } from '../src/lib/id';
-import { countMessages } from '../src/store/selectors';
-import { CONFIDENCE, QUEUE, runAgent, triggerOf, type AgentEffect, type AgentReply } from '../src/agent/engine';
-import { readDB, updateDB } from './db';
-import { env } from './env';
-import { interpret } from './llm';
-import { peekNextIds, ticketService, withRetry } from './tickets';
+import type { AgentInput, Block, Conversation, DB, Message, Ticket, TicketDraft } from '../src/data/types.js';
+import { HANDOFF_HOURS } from '../src/lib/sla.js';
+import { MESSAGE_LIMIT } from '../src/lib/limits.js';
+import { uid } from '../src/lib/id.js';
+import { countMessages } from '../src/store/selectors.js';
+import { CONFIDENCE, QUEUE, runAgent, triggerOf, type AgentEffect, type AgentReply } from '../src/agent/engine.js';
+import { readDB, updateDB } from './db.js';
+import { env } from './env.js';
+import { interpret } from './llm.js';
+import { peekNextIds, ticketService, withRetry } from './tickets.js';
 
 /** Tentativas no sistema de chamados antes de desistir. */
 const ATTEMPTS = 3;

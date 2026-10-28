@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { canReopen, isOverdue, slaDeadline } from './sla';
-import type { Ticket } from '../data/types';
+import { canReopen, isOverdue, slaDeadline } from './sla.js';
+import type { Ticket } from '../data/types.js';
 
 const ticket = (partial: Partial<Ticket>): Ticket => ({
   id: 'INC-1',

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type { DB, User } from '../src/data/types';
-import { CORPORATE_DOMAIN } from '../src/lib/limits';
-import { readDB, updateDB, type ServerDB } from './db';
+import type { DB, User } from '../src/data/types.js';
+import { CORPORATE_DOMAIN } from '../src/lib/limits.js';
+import { readDB, updateDB, type ServerDB } from './db.js';
 
 export type LoginResult = { ok: true; user: User; token: string } | { ok: false; error: string };
 

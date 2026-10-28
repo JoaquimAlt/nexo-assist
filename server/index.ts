@@ -1,11 +1,11 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
-import { app } from './app';
-import { env } from './env';
-import { clearStalePending, storeKind } from './db';
-import { checkModel } from './llm';
+import { app } from './app.js';
+import { env } from './env.js';
+import { clearStalePending, storeKind } from './db.js';
+import { checkModel } from './llm.js';
 
-/** Servidor local (npm run dev / npm start). Na Vercel, quem atende é api/index.ts. */
+/** Servidor local (npm run dev / npm start). Na Vercel, quem atende é api/[[...route]].ts. */
 
 // Em produção local, o mesmo servidor entrega o front (npm run build && npm start).
 app.use('/*', serveStatic({ root: './dist' }));

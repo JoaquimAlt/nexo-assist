@@ -1,4 +1,4 @@
-import type { Conversation, DB, Message } from '../data/types';
+import type { Conversation, DB, Message } from '../data/types.js';
 
 export const userById = (db: DB, id: string | undefined) => db.users.find((u) => u.id === id);
 export const ticketById = (db: DB, id: string | undefined) => db.tickets.find((t) => t.id === id);

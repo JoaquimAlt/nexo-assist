@@ -1,6 +1,6 @@
-import type { Conversation, DB, EventIcon, Message, Ticket, User } from './types';
-import { ddmm, dueLabel, subBusinessDays } from '../lib/time';
-import { slaDeadline } from '../lib/sla';
+import type { Conversation, DB, EventIcon, Message, Ticket, User } from './types.js';
+import { ddmm, dueLabel, subBusinessDays } from '../lib/time.js';
+import { slaDeadline } from '../lib/sla.js';
 
 /** Incrementar quando o formato do banco mudar: dados antigos são descartados. */
 export const SEED_VERSION = 2;

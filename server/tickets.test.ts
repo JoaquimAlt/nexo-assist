@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { resetDB } from './db';
-import { TicketAccessError, TicketServiceError, configureTicketService, ticketService, withRetry } from './tickets';
+import { resetDB } from './db.js';
+import { TicketAccessError, TicketServiceError, configureTicketService, ticketService, withRetry } from './tickets.js';
 
 beforeEach(async () => {
   await resetDB();

@@ -1,5 +1,5 @@
-import type { Priority, Ticket } from '../data/types';
-import { addBusinessDays, addBusinessHours } from './time';
+import type { Priority, Ticket } from '../data/types.js';
+import { addBusinessDays, addBusinessHours } from './time.js';
 
 /**
  * Prazos do service desk (Anexo A). O prazo vale para a primeira resposta e

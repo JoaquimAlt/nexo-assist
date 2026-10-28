@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { Block, Conversation, Interpretation, Message } from '../data/types';
-import { createSeed } from '../data/seed';
-import { CONFIDENCE, detectAffected, normalize, runAgent, type AgentEnv } from './engine';
+import type { Block, Conversation, Interpretation, Message } from '../data/types.js';
+import { createSeed } from '../data/seed.js';
+import { CONFIDENCE, detectAffected, normalize, runAgent, type AgentEnv } from './engine.js';
 
 // Uma quarta-feira às 11:43, como no protótipo.
 const NOW = new Date(2026, 9, 21, 11, 43);

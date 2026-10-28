@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { Redis } from '@upstash/redis';
-import type { DB } from '../src/data/types';
-import { createSeed, SEED_VERSION } from '../src/data/seed';
-import { env } from './env';
+import type { DB } from '../src/data/types.js';
+import { createSeed, SEED_VERSION } from '../src/data/seed.js';
+import { env } from './env.js';
 
 /**
  * Banco do servidor: um documento só. Conversas, chamados, o estado de cada

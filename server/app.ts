@@ -1,12 +1,12 @@
-import './env';
+import './env.js';
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
-import type { User } from '../src/data/types';
-import { CATEGORIES } from '../src/data/labels';
-import { currentRev, readDB, readSnapshot, resetDB } from './db';
-import { login, logout, userForToken, viewFor } from './auth';
-import { contactTyping, restartConversation, sendToConversation, startConversation, updateDraft } from './runtime';
-import * as consoleActions from './console';
+import type { User } from '../src/data/types.js';
+import { CATEGORIES } from '../src/data/labels.js';
+import { currentRev, readDB, readSnapshot, resetDB } from './db.js';
+import { login, logout, userForToken, viewFor } from './auth.js';
+import { contactTyping, restartConversation, sendToConversation, startConversation, updateDraft } from './runtime.js';
+import * as consoleActions from './console.js';
 
 /**
  * Rotas da API. Rodam igual no servidor local (server/index.ts) e nas funções

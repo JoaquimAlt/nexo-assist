@@ -1,4 +1,4 @@
-import type { Affected, Priority, TicketKind, TicketStatus } from './types';
+import type { Affected, Priority, TicketKind, TicketStatus } from './types.js';
 
 export type Tone = 'amber' | 'blue' | 'green' | 'gray' | 'red';
 

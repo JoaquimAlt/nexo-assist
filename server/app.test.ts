@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { app } from './app';
-import { resetDB, updateDB } from './db';
-import { configureTicketService } from './tickets';
+import { app } from './app.js';
+import { resetDB, updateDB } from './db.js';
+import { configureTicketService } from './tickets.js';
 
 /** Testa a API pelo próprio Hono, sem subir servidor: é o mesmo código que roda na Vercel. */
 const call = (path: string, init: { token?: string; body?: unknown } = {}) =>

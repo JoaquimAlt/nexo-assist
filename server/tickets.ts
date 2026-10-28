@@ -1,7 +1,7 @@
-import type { DB, Priority, Ticket, TicketKind } from '../src/data/types';
-import { TICKET_KIND } from '../src/data/labels';
-import { readDB, updateDB } from './db';
-import { env } from './env';
+import type { DB, Priority, Ticket, TicketKind } from '../src/data/types.js';
+import { TICKET_KIND } from '../src/data/labels.js';
+import { readDB, updateDB } from './db.js';
+import { env } from './env.js';
 
 /**
  * Serviço de chamados simulado. Faz o papel do sistema legado: cada chamada
