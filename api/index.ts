@@ -1,7 +1,10 @@
 import { handle } from 'hono/vercel';
 import { app } from '../server/app.js';
 
-/** Função da Vercel: recebe todas as rotas /api/* com o caminho original. */
+/**
+ * Função da Vercel. O vercel.json reescreve todo /api/* para cá, mantendo o
+ * caminho original, e o app Hono escolhe a rota.
+ */
 const handler = handle(app);
 
 export const GET = handler;

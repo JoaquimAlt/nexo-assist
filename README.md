@@ -45,7 +45,7 @@ Para voltar ao estado inicial: menu do avatar no console › **Restaurar dados d
 
 ## Deploy na Vercel
 
-O projeto roda inteiro na Vercel: o front é estático e a API vira uma função (`api/[[...route]].ts`, que usa o mesmo app Hono do servidor local).
+O projeto roda inteiro na Vercel: o front é estático e a API vira uma função (`api/index.ts`, que usa o mesmo app Hono do servidor local; o `vercel.json` manda todo `/api/*` para ela).
 
 1. Importe o repositório na Vercel. O `vercel.json` já define o build (`npm run build`), a pasta `dist` e a função da API.
 2. Em **Storage**, crie um **Upstash Redis** (há plano gratuito) e conecte ao projeto. Ele cria `KV_REST_API_URL` e `KV_REST_API_TOKEN`; sem eles, a função não tem onde guardar conversas e chamados entre uma requisição e outra.
@@ -57,7 +57,7 @@ O projeto roda inteiro na Vercel: o front é estático e a API vira uma função
 ## Arquitetura
 
 ```
-api/[[...route]].ts      função da Vercel: entrega todas as rotas /api/* ao app Hono
+api/index.ts             função da Vercel: recebe todo /api/* (via vercel.json) e entrega ao app Hono
 server/                  API (Hono) — tudo que tem chave, dado ou regra de acesso fica aqui
   app.ts                 rotas HTTP, validação de entrada (zod), permissões
   index.ts               servidor local (npm run dev / npm start)
