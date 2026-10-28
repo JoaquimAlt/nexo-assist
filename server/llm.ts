@@ -6,7 +6,7 @@ import { KB } from '../src/data/kb';
 import { messageText } from '../src/store/selectors';
 import { canReopen, isOverdue } from '../src/lib/sla';
 import { calendarDaysBetween, relDays } from '../src/lib/time';
-import { getDB, updateDB } from './db';
+import { updateDB } from './db';
 import { env } from './env';
 
 /**
@@ -89,15 +89,17 @@ export const interpretationSchema = z.object({
 
 type RawInterpretation = z.infer<typeof interpretationSchema>;
 
+/** O Ollama local fala a API da OpenAI; os demais provedores vão pelo model router do Mastra. */
+function modelConfig(id: string) {
+  return id.startsWith('ollama/') ? { id: id as `${string}/${string}`, url: `${env.ollamaUrl}/v1`, apiKey: 'ollama' } : id;
+}
+
 export const nexoAgent = new Agent({
   id: 'nexo-assist',
   name: 'Nexo Assist',
   instructions: INSTRUCTIONS,
-  // O Ollama local fala a API da OpenAI; os demais provedores vão pelo model router do Mastra.
-  model:
-    env.provider === 'ollama'
-      ? { id: env.model as `${string}/${string}`, url: `${env.ollamaUrl}/v1`, apiKey: 'ollama' }
-      : env.model,
+  model: env.models.length > 1 ? env.models.map((m) => ({ model: modelConfig(m), maxRetries: 1 })) : modelConfig(env.model),
+  maxRetries: 1,
 });
 
 export interface InterpretArgs {
@@ -170,13 +172,12 @@ export function toInterpretation(o: RawInterpretation): Interpretation {
 /** Reserva uma chamada no limite diário. */
 function takeQuota() {
   const today = new Date().toISOString().slice(0, 10);
-  const usage = getDB().llmUsage;
-  const calls = usage.day === today ? usage.calls : 0;
-  if (calls >= env.llmDailyLimit) return false;
-  updateDB((db) => {
+  return updateDB((db) => {
+    const calls = db.llmUsage.day === today ? db.llmUsage.calls : 0;
+    if (calls >= env.llmDailyLimit) return false;
     db.llmUsage = { day: today, calls: calls + 1 };
+    return true;
   });
-  return true;
 }
 
 const modelName = env.model.replace(/^[^/]+\//, '');
@@ -198,7 +199,7 @@ export function describeFailure(err: unknown, timeoutMs = env.llmTimeoutMs): str
  */
 export async function interpret(args: InterpretArgs): Promise<{ interpretation?: Interpretation; source: DecisionSource }> {
   if (env.modelUnavailable) return { source: { kind: 'regras', note: `${env.modelUnavailable}; interpretado pelas regras.` } };
-  if (!takeQuota()) return { source: { kind: 'regras', note: 'Limite diário de uso do modelo atingido; interpretado pelas regras.' } };
+  if (!(await takeQuota())) return { source: { kind: 'regras', note: 'Limite diário de uso do modelo atingido; interpretado pelas regras.' } };
 
   const started = Date.now();
   try {
@@ -214,7 +215,7 @@ export async function interpret(args: InterpretArgs): Promise<{ interpretation?:
     }
     return {
       interpretation: toInterpretation(res.object),
-      source: { kind: 'llm', model: modelName, tokens: res.totalUsage?.totalTokens, latencyMs: Date.now() - started },
+      source: { kind: 'llm', model: res.response?.modelId ?? modelName, tokens: res.totalUsage?.totalTokens, latencyMs: Date.now() - started },
     };
   } catch (err) {
     const reason = describeFailure(err);
@@ -226,7 +227,7 @@ export async function interpret(args: InterpretArgs): Promise<{ interpretation?:
 /** Confere na subida se o modelo está pronto, para avisar no terminal o que falta. */
 export async function checkModel(): Promise<string> {
   if (env.modelUnavailable) return `${env.modelUnavailable}: o agent usa só as regras.`;
-  if (env.provider !== 'ollama') return `Modelo: ${env.model}`;
+  if (env.provider !== 'ollama') return `Modelo: ${env.models.join(' → ')}`;
   try {
     const res = await fetch(`${env.ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(3000) });
     const { models = [] } = (await res.json()) as { models?: { name: string }[] };

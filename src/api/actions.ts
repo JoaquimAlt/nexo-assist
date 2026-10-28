@@ -37,4 +37,5 @@ export const sendAsAnalyst = (convId: string, _analyst: User, text: string) => f
 export const markRead = (convId: string) => fire(`/console/${convId}/read`);
 export const markUnread = (convId: string) => fire(`/console/${convId}/unread`);
 export const setAvailability = (available: boolean) => fire('/console/availability', { available });
+export const resetDB = () => fire('/console/reset');
 export const analystTyping = (convId: string) => throttled(`a:${convId}`, () => fire(`/console/${convId}/typing`));

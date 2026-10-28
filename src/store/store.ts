@@ -1,16 +1,22 @@
 import { useSyncExternalStore } from 'react';
 import type { DB } from '../data/types';
 import { SEED_VERSION } from '../data/seed';
-import { api, fire, getSession, onSessionChange, reportError } from '../api/client';
+import { api, getSession, onActionDone, onSessionChange, reportError } from '../api/client';
 
 /**
- * Cópia local do que o servidor deixa esta pessoa ver. O servidor avisa cada
- * mudança por eventos (SSE) e a cópia é buscada de novo; por isso colaborador
- * e analista conversam ao vivo, em abas ou máquinas diferentes.
+ * Cópia local do que o servidor deixa esta pessoa ver. O navegador pergunta de
+ * tempos em tempos se a revisão mudou e só baixa o estado quando mudou; por
+ * isso colaborador e analista conversam ao vivo, em abas ou máquinas
+ * diferentes, inclusive nas funções da Vercel, que não mantêm conexão aberta.
  */
 const EMPTY: DB = { version: SEED_VERSION, users: [], tickets: [], conversations: [], seq: { inc: 0, req: 0, draft: 0 }, analystAvailable: true };
 
+/** Intervalo da consulta com a aba visível e em segundo plano. */
+const POLL_MS = 1500;
+const POLL_HIDDEN_MS = 10_000;
+
 let state: DB = EMPTY;
+let rev = -1;
 let loaded = false;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
@@ -28,18 +34,21 @@ export function subscribe(listener: () => void) {
 let inFlight: Promise<void> | null = null;
 let again = false;
 
-/** Busca o estado; pedidos que chegam durante a busca viram uma busca só, logo depois. */
+/** Busca o estado se mudou; pedidos durante a busca viram uma busca só, logo depois. */
 export function refresh(): Promise<void> {
   if (inFlight) {
     again = true;
     return inFlight;
   }
-  inFlight = api<DB>('/state')
-    .then((db) => {
-      state = db;
-      loaded = true;
+  inFlight = api<{ rev: number; db: DB } | null>(`/state?rev=${rev}`)
+    .then((res) => {
+      if (res) {
+        state = res.db;
+        rev = res.rev;
+        loaded = true;
+        emit();
+      }
       reportError(null);
-      emit();
     })
     .catch((err: unknown) => {
       if (getSession()) reportError(err instanceof Error ? err.message : 'Sem conexão com o servidor.');
@@ -54,27 +63,34 @@ export function refresh(): Promise<void> {
   return inFlight;
 }
 
-let source: EventSource | null = null;
+let timer: ReturnType<typeof setTimeout> | undefined;
+
+function schedule() {
+  clearTimeout(timer);
+  if (!getSession()) return;
+  timer = setTimeout(
+    () => void refresh().finally(schedule),
+    typeof document !== 'undefined' && document.hidden ? POLL_HIDDEN_MS : POLL_MS,
+  );
+}
 
 function connect() {
-  source?.close();
-  source = null;
-  const session = getSession();
-  if (!session) {
-    state = EMPTY;
-    loaded = false;
-    emit();
-    return;
-  }
-  void refresh();
-  source = new EventSource(`/api/events?token=${encodeURIComponent(session.token)}`);
-  source.addEventListener('change', () => void refresh());
-  source.onerror = () => reportError('Reconectando ao servidor…');
-  source.onopen = () => reportError(null);
+  clearTimeout(timer);
+  state = EMPTY;
+  rev = -1;
+  loaded = false;
+  emit();
+  if (!getSession()) return;
+  void refresh().finally(schedule);
 }
 
 if (typeof window !== 'undefined') {
   onSessionChange(connect);
+  // Depois de uma ação, atualiza na hora em vez de esperar a próxima consulta.
+  onActionDone(() => void refresh());
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) void refresh().finally(schedule);
+  });
   connect();
 }
 
@@ -84,6 +100,4 @@ export function useDB() {
 
 export const useLoaded = () => useSyncExternalStore(subscribe, isLoaded);
 
-export function resetDB() {
-  fire('/console/reset');
-}
+export { resetDB } from '../api/actions';

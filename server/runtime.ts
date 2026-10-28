@@ -4,15 +4,19 @@ import { MESSAGE_LIMIT } from '../src/lib/limits';
 import { uid } from '../src/lib/id';
 import { countMessages } from '../src/store/selectors';
 import { CONFIDENCE, QUEUE, runAgent, triggerOf, type AgentEffect, type AgentReply } from '../src/agent/engine';
-import { getDB, updateDB } from './db';
+import { readDB, updateDB } from './db';
+import { env } from './env';
 import { interpret } from './llm';
 import { peekNextIds, ticketService, withRetry } from './tickets';
 
 /** Tentativas no sistema de chamados antes de desistir. */
 const ATTEMPTS = 3;
 
-/** Com essa confiança nas regras, o modelo não é chamado (assunto reconhecido, palavra-chave clara, botão). */
+/** Com modelo local, essa confiança nas regras dispensa o modelo (assunto reconhecido, palavra-chave clara). */
 const RULES_ARE_ENOUGH = CONFIDENCE.topic;
+
+/** Resposta "pensando" há mais que isso foi interrompida (função encerrada, servidor reiniciado). */
+const STALE_PENDING_MS = 60_000;
 
 export const newMessage = (partial: Omit<Message, 'id' | 'at'>, at = new Date()): Message => ({ id: uid(), at: at.toISOString(), ...partial });
 
@@ -21,8 +25,8 @@ const draftBlock = (m: Message | undefined) => m?.blocks?.find((b): b is Extract
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Abre uma conversa nova, a menos que a mais recente ainda esteja ativa. */
-export function startConversation(contactId: string) {
-  updateDB((db) => {
+export async function startConversation(contactId: string) {
+  await updateDB((db) => {
     const latest = db.conversations.filter((c) => c.contactId === contactId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
     if (latest && latest.status !== 'closed') return;
     db.conversations.push({ id: uid(), contactId, status: 'agent', createdAt: new Date().toISOString(), messages: [], agent: {} });
@@ -30,18 +34,18 @@ export function startConversation(contactId: string) {
 }
 
 /** Encerra a conversa atual (pelo colaborador) e abre outra. */
-export function restartConversation(convId: string) {
-  updateDB((db) => {
+export async function restartConversation(convId: string) {
+  const contactId = await updateDB((db) => {
     const c = findConv(db, convId);
-    if (!c || c.status === 'closed') return;
-    if (c.messages.length === 0) return;
+    if (!c || c.status === 'closed') return c?.contactId;
+    if (c.messages.length === 0) return undefined;
     c.status = 'closed';
     c.closedAt = new Date().toISOString();
     c.pending = undefined;
     c.messages.push(newMessage({ author: 'event', text: 'Conversa encerrada pelo colaborador', event: { icon: 'check', contactText: 'Conversa encerrada' } }));
+    return c.contactId;
   });
-  const c = findConv(getDB(), convId);
-  if (c) startConversation(c.contactId);
+  if (contactId) await startConversation(contactId);
 }
 
 function markChoice(c: Conversation, value: string, messageId?: string, blockIndex?: number) {
@@ -60,7 +64,7 @@ function markChoice(c: Conversation, value: string, messageId?: string, blockInd
 }
 
 function setPending(convId: string, pending: Conversation['pending']) {
-  updateDB((db) => {
+  return updateDB((db) => {
     const c = findConv(db, convId);
     if (c) c.pending = pending;
   });
@@ -68,7 +72,7 @@ function setPending(convId: string, pending: Conversation['pending']) {
 
 function retryNotice(convId: string) {
   return (attempt: number) =>
-    updateDB((db) => {
+    void updateDB((db) => {
       const c = findConv(db, convId);
       if (c?.pending) c.pending.notice = `O sistema de chamados não respondeu. Tentando de novo (${attempt}/${ATTEMPTS})…`;
     });
@@ -77,11 +81,11 @@ function retryNotice(convId: string) {
 /** Mensagem do colaborador: registra, e se o agent estiver atendendo, gera a resposta. */
 export async function sendToConversation(convId: string, input: AgentInput, echo?: string) {
   const startedAt = new Date();
-  let agentTurn = false as boolean;
 
-  updateDB((db) => {
+  const contactId = await updateDB((db) => {
     const c = findConv(db, convId);
-    if (!c || c.status === 'closed' || countMessages(c) >= MESSAGE_LIMIT) return;
+    if (!c || c.status === 'closed' || countMessages(c) >= MESSAGE_LIMIT) return undefined;
+    if (c.pending && Date.now() - Date.parse(c.pending.startedAt) > c.pending.durationMs + STALE_PENDING_MS) c.pending = undefined;
     if (echo) c.messages.push(newMessage({ author: 'contact', text: echo.slice(0, 1000) }, startedAt));
     if (input.type === 'choice') markChoice(c, input.value, input.messageId, input.blockIndex);
     if (input.type === 'pick-ticket') {
@@ -90,56 +94,54 @@ export async function sendToConversation(convId: string, input: AgentInput, echo
     }
     if (c.status === 'resolved') c.status = 'agent';
     c.contactTypingUntil = undefined;
-    agentTurn = c.status === 'agent' && !c.pending;
+    if (c.status !== 'agent' || c.pending) return undefined;
     // Enquanto consulta o sistema de chamados e o modelo, mostra o "digitando".
-    if (agentTurn) {
-      c.pending = { tools: input.type === 'text' ? ['entendendo a mensagem'] : [], startedAt: startedAt.toISOString(), durationMs: 20_000 };
-    }
+    c.pending = { tools: input.type === 'text' ? ['entendendo a mensagem'] : [], startedAt: startedAt.toISOString(), durationMs: 20_000 };
+    return c.contactId;
   });
 
-  if (!agentTurn) return;
+  if (!contactId) return;
 
-  const contactId = findConv(getDB(), convId)!.contactId;
   let tickets: Ticket[];
   let failures: number;
   try {
     ({ value: tickets, failures } = await withRetry(() => ticketService.listByRequester(contactId), retryNotice(convId), ATTEMPTS));
   } catch {
-    failReply(convId, input, 'consultar seus chamados');
+    await failReply(convId, input, 'consultar seus chamados');
     return;
   }
 
-  const db = getDB();
+  const db = await readDB();
   const c = findConv(db, convId);
   const user = db.users.find((u) => u.id === contactId);
   if (!c || !user || c.status !== 'agent') {
-    setPending(convId, undefined);
+    await setPending(convId, undefined);
     return;
   }
 
-  const envFor = (conversation: Conversation) => ({
+  const envFor = async (conversation: Conversation) => ({
     user,
     tickets,
     conversation,
     now: new Date(),
-    nextIds: peekNextIds(),
-    nextDraftId: `D-${getDB().seq.draft}`,
+    nextIds: await peekNextIds(),
+    nextDraftId: `D-${(await readDB()).seq.draft}`,
   });
 
-  // Primeiro as regras, que são instantâneas. O modelo só entra numa mensagem de texto que
-  // as regras não entenderam com segurança; botões e confirmações nunca precisam dele.
-  let result = runAgent(input, envFor(c));
+  // Botões e confirmações já dizem o que a pessoa quer: só as regras. Texto passa pelo modelo;
+  // com modelo local (lento), só quando as regras não entenderam com segurança.
+  let result = runAgent(input, await envFor(c));
   if (input.type === 'text') {
-    if (result.decision.confidence >= RULES_ARE_ENOUGH) {
+    if (env.modelOnlyWhenRulesUnsure && result.decision.confidence >= RULES_ARE_ENOUGH) {
       result = { ...result, decision: { ...result.decision, source: { kind: 'regras', note: 'As regras entenderam com segurança; o modelo não foi necessário.' } } };
     } else {
       const { interpretation, source } = await interpret({ text: input.text, user, tickets, conversation: c, context: c.agent ?? {}, now: new Date() });
-      const fresh = findConv(getDB(), convId);
+      const fresh = findConv(await readDB(), convId);
       if (!fresh || fresh.status !== 'agent') {
-        setPending(convId, undefined);
+        await setPending(convId, undefined);
         return;
       }
-      result = runAgent(input, { ...envFor(fresh), interpretation, source });
+      result = runAgent(input, { ...(await envFor(fresh)), interpretation, source });
     }
   }
 
@@ -147,14 +149,14 @@ export async function sendToConversation(convId: string, input: AgentInput, echo
 
   // O tempo de "pensar" acompanha as ferramentas, que aparecem uma a uma na interface.
   const durationMs = 500 + result.tools.length * 450 + Math.round(Math.random() * 300);
-  setPending(convId, { tools: result.tools, startedAt: now.toISOString(), durationMs });
+  await setPending(convId, { tools: result.tools, startedAt: now.toISOString(), durationMs });
   await wait(durationMs);
   await commitReply(convId, input, result, failures);
 }
 
 /** O sistema de chamados não respondeu: avisa, não altera nada e oferece tentar de novo. */
 function failReply(convId: string, input: AgentInput, what: string) {
-  updateDB((db) => {
+  return updateDB((db) => {
     const c = findConv(db, convId);
     if (!c) return;
     c.pending = undefined;
@@ -195,13 +197,14 @@ function commitTarget(effect: AgentEffect, c: Conversation) {
 }
 
 async function commitReply(convId: string, input: AgentInput, result: AgentReply, fetchFailures: number) {
-  const conv = findConv(getDB(), convId);
+  const db = await readDB();
+  const conv = findConv(db, convId);
   // Um analista pode ter assumido enquanto o agent pensava.
   if (!conv || conv.status !== 'agent') {
-    setPending(convId, undefined);
+    await setPending(convId, undefined);
     return;
   }
-  const contact = getDB().users.find((u) => u.id === conv.contactId);
+  const contact = db.users.find((u) => u.id === conv.contactId);
   const author = contact?.name ?? 'Colaborador';
   const onRetry = retryNotice(convId);
 
@@ -234,13 +237,13 @@ async function commitReply(convId: string, input: AgentInput, result: AgentReply
         }
       }
     } catch {
-      failReply(convId, input, commitTarget(effect, conv));
+      await failReply(convId, input, commitTarget(effect, conv));
       return;
     }
   }
 
   const now = new Date();
-  updateDB((db) => {
+  await updateDB((db) => {
     const c = findConv(db, convId);
     if (!c) return;
     c.pending = undefined;
@@ -314,33 +317,22 @@ function applyEffect(c: Conversation, effect: AgentEffect, now: Date, createdId:
 }
 
 /** Salva a edição do rascunho feita no cartão. */
-export function updateDraft(convId: string, messageId: string, draft: TicketDraft) {
-  updateDB((db) => {
+export async function updateDraft(convId: string, messageId: string, draft: TicketDraft) {
+  await updateDB((db) => {
     const c = findConv(db, convId);
     const block = draftBlock(c?.messages.find((m) => m.id === messageId));
     if (block && block.state === 'pending') block.draft = draft;
   });
 }
 
-/** Resposta que ficou pendente quando a aba foi fechada no meio do "pensar". */
-export function recoverStale(convId: string) {
-  const c = findConv(getDB(), convId);
-  if (!c?.pending) return;
-  if (Date.now() - Date.parse(c.pending.startedAt) < c.pending.durationMs + 3000) return;
-  updateDB((db) => {
-    const conv = findConv(db, convId);
-    if (conv) conv.pending = undefined;
-  });
-}
-
 const lastTypingSignal = new Map<string, number>();
 
 /** Avisa o analista que o colaborador está digitando (com limite de frequência). */
-export function contactTyping(convId: string) {
+export async function contactTyping(convId: string) {
   const now = Date.now();
   if (now - (lastTypingSignal.get(convId) ?? 0) < 2000) return;
   lastTypingSignal.set(convId, now);
-  updateDB((db) => {
+  await updateDB((db) => {
     const c = findConv(db, convId);
     if (c) c.contactTypingUntil = now + 4000;
   });

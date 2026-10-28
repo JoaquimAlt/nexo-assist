@@ -68,15 +68,31 @@ export async function api<T = { ok: true }>(path: string, payload?: unknown): Pr
   } catch {
     throw new ApiError('Sem conexão com o servidor.', 0);
   }
+  // 204: nada mudou desde a revisão que o navegador já tem.
+  if (res.status === 204) return null as T;
   const data = (await res.json().catch(() => ({}))) as { error?: string };
   if (res.status === 401 && path !== '/login') setSession(null);
   if (!res.ok) throw new ApiError(data.error ?? 'Algo deu errado.', res.status);
   return data as T;
 }
 
+const actionListeners = new Set<() => void>();
+
+/** Chamado a cada ação concluída, para a tela atualizar sem esperar a próxima consulta. */
+export function onActionDone(listener: () => void) {
+  actionListeners.add(listener);
+  return () => {
+    actionListeners.delete(listener);
+  };
+}
+
 /** Ações disparadas por clique: o erro é mostrado no aviso de conexão, não derruba a tela. */
 export function fire(path: string, payload: unknown = {}) {
-  api(path, payload).catch((err: unknown) => reportError(err instanceof Error ? err.message : 'Algo deu errado.'));
+  // Mostra logo o que já foi gravado (ex.: a mensagem enviada), antes de a ação inteira terminar.
+  setTimeout(() => actionListeners.forEach((l) => l()), 300);
+  api(path, payload)
+    .then(() => actionListeners.forEach((l) => l()))
+    .catch((err: unknown) => reportError(err instanceof Error ? err.message : 'Algo deu errado.'));
 }
 
 let lastError: string | null = null;

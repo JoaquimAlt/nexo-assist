@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { resetDB } from './db';
 import { TicketAccessError, TicketServiceError, configureTicketService, ticketService, withRetry } from './tickets';
 
-beforeEach(() => {
-  resetDB();
+beforeEach(async () => {
+  await resetDB();
   configureTicketService({ failureRate: 0, latencyMs: [0, 0], random: Math.random });
 });
 

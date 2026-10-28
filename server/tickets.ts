@@ -1,6 +1,6 @@
 import type { DB, Priority, Ticket, TicketKind } from '../src/data/types';
 import { TICKET_KIND } from '../src/data/labels';
-import { getDB, updateDB } from './db';
+import { readDB, updateDB } from './db';
 import { env } from './env';
 
 /**
@@ -33,7 +33,7 @@ export function configureTicketService(next: Partial<Config>) {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function call<T>(op: () => T): Promise<T> {
+async function call<T>(op: () => T | Promise<T>): Promise<T> {
   const [min, max] = config.latencyMs;
   await wait(min + config.random() * (max - min));
   if (config.random() < config.failureRate) throw new TicketServiceError();
@@ -63,8 +63,8 @@ function nextId(db: DB, kind: TicketKind) {
 }
 
 /** Próximo número de cada tipo, sem reservar (o agent usa para prever o número). */
-export function peekNextIds(): Record<TicketKind, string> {
-  const db = getDB();
+export async function peekNextIds(): Promise<Record<TicketKind, string>> {
+  const db = await readDB();
   return { incidente: nextId(db, 'incidente').id, requisicao: nextId(db, 'requisicao').id };
 }
 
@@ -78,16 +78,15 @@ export interface NewTicket {
 
 export const ticketService = {
   listByRequester(requesterId: string): Promise<Ticket[]> {
-    return call(() => structuredClone(getDB().tickets.filter((t) => t.requesterId === requesterId)));
+    return call(async () => (await readDB()).tickets.filter((t) => t.requesterId === requesterId));
   },
 
   create(requesterId: string, input: NewTicket): Promise<Ticket> {
-    return call(() => {
-      let created!: Ticket;
+    return call(() =>
       updateDB((db) => {
         const { id, key, n } = nextId(db, input.kind);
         const now = new Date().toISOString();
-        created = {
+        const created: Ticket = {
           id,
           title: input.title,
           description: input.description,
@@ -101,9 +100,9 @@ export const ticketService = {
         };
         db.tickets.push(created);
         db.seq[key] = n + 1;
-      });
-      return created;
-    });
+        return created;
+      }),
+    );
   },
 
   addNote(requesterId: string, ticketId: string, author: string, text: string): Promise<void> {
