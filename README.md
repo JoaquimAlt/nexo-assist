@@ -43,6 +43,7 @@ Outros colaboradores dos dados de exemplo: `carla.mendes@`, `bruno.tavares@`, `d
 
 Para voltar ao estado inicial: menu do avatar no console › **Restaurar dados de demonstração**.
 
+<<<<<<< HEAD
 ## Deploy na Vercel
 
 O projeto roda inteiro na Vercel: o front é estático e a API vira uma função (`api/index.ts`, que usa o mesmo app Hono do servidor local; o `vercel.json` manda todo `/api/*` para ela).
@@ -54,6 +55,8 @@ O projeto roda inteiro na Vercel: o front é estático e a API vira uma função
 
 **Proteção de chave e custo**, como pede o PRD: a chave fica só nas variáveis de ambiente da Vercel (nunca no repositório nem no navegador); o projeto do Google fica no nível gratuito, sem faturamento; `LLM_DAILY_LIMIT` limita as chamadas ao modelo por dia, e o limite de 30 mensagens por conversa é validado no servidor. Se o modelo estiver sobrecarregado ou o limite acabar, o agent continua funcionando pelas regras.
 
+=======
+>>>>>>> c6d146d1ec3a27d6fb33c372a8ba24ca648fd878
 ## Arquitetura
 
 ```
